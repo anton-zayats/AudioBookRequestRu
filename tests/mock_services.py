@@ -1,9 +1,8 @@
 """In-process HTTP doubles for external services.
 
-Prowlarr, Chaptarr (Readarr-compatible), notifications, Audiobookshelf and OIDC
-are all reached over HTTP by the application. Tests start one aiohttp server in a
-background thread and point the relevant config keys at it, so no real service is
-needed.
+Prowlarr, notifications, Audiobookshelf and OIDC are all reached over HTTP by the
+application. Tests start one aiohttp server in a background thread and point the
+relevant config keys at it, so no real service is needed.
 
 Usage:
     mock = MockServer().start()
@@ -52,8 +51,7 @@ class MockState(TypedDict):
     notification_payloads: list[NotificationPayload]
     abs_libraries: list[dict[str, object]]
     oidc_userinfo: dict[str, object]
-    chaptarr_lookup: list[dict[str, object]]
-    chaptarr_added: list[dict[str, object]]
+    aria2_params: list[dict[str, object]]
 
 
 DEFAULT_INDEXERS: list[dict[str, object]] = [
@@ -201,25 +199,7 @@ def default_state(base_url: str) -> MockState:
             "preferred_username": "oidc-user",
             "groups": ["admin"],
         },
-        "chaptarr_lookup": [
-            {
-                "id": 0,
-                "title": DEFAULT_SEARCH_TERM,
-                "foreignBookId": "hc:1",
-                "foreignEditionId": "az:B00TEST01",
-                "asin": "B00TEST01",
-                "audibleASIN": "B00TEST01",
-                "mediaType": "audiobook",
-                "addOptions": {"addType": "automatic", "searchForNewBook": False},
-                "author": {
-                    "id": 0,
-                    "foreignAuthorId": "hc:author1",
-                    "authorName": "Mock Author",
-                },
-                "editions": [{"foreignEditionId": "az:B00TEST01", "asin": "B00TEST01"}],
-            }
-        ],
-        "chaptarr_added": [],
+        "aria2_params": [],
     }
 
 
@@ -251,48 +231,6 @@ def install_prowlarr(mock: MockServer, prefix: str = "/prowlarr") -> None:
     mock.add("GET", f"{prefix}/api/v1/search", search)
     mock.add("POST", f"{prefix}/api/v1/search", grab)
     mock.add("GET", f"{prefix}/download/{{name}}", torrent)
-
-
-def install_chaptarr(mock: MockServer, prefix: str = "/chaptarr") -> None:
-    """Chaptarr v1 API surface used by the app (book lookup, add, profiles)."""
-
-    install_prowlarr(mock, prefix=prefix)
-
-    async def status(_: web.Request) -> web.Response:
-        return web.json_response({"version": "mock", "appName": "Chaptarr"})
-
-    async def lookup(_: web.Request) -> web.Response:
-        return web.json_response(mock.state["chaptarr_lookup"])
-
-    async def add_book(request: web.Request) -> web.Response:
-        value = cast(object, await request.json())
-        assert isinstance(value, dict)
-        mock.state["chaptarr_added"].append(cast(dict[str, object], value))
-        return web.json_response(1, status=201)
-
-    async def rootfolder(_: web.Request) -> web.Response:
-        return web.json_response(
-            [
-                {
-                    "id": 1,
-                    "path": "/audiobooks",
-                    "folderType": 1,
-                    "isEffectiveDefaultAudiobook": True,
-                    "audiobookQualityProfileId": 1,
-                    "audiobookMetadataProfileId": 1,
-                }
-            ]
-        )
-
-    async def profiles(_: web.Request) -> web.Response:
-        return web.json_response([{"id": 1, "name": "Audiobook"}])
-
-    mock.add("GET", f"{prefix}/api/v1/system/status", status)
-    mock.add("GET", f"{prefix}/api/v1/book/lookup", lookup)
-    mock.add("POST", f"{prefix}/api/v1/book", add_book)
-    mock.add("GET", f"{prefix}/api/v1/rootfolder", rootfolder)
-    mock.add("GET", f"{prefix}/api/v1/qualityprofile", profiles)
-    mock.add("GET", f"{prefix}/api/v1/metadataprofile", profiles)
 
 
 def install_notifications(mock: MockServer, prefix: str = "/notify") -> None:
@@ -332,7 +270,6 @@ def install_audiobookshelf(mock: MockServer, prefix: str = "/abs") -> None:
                                 "authorName": "Mock Author",
                                 "narratorName": "Mock Narrator",
                                 "publishedDate": "2026-01-01",
-                                "asin": "B00TEST01",
                             },
                         },
                     }
@@ -405,3 +342,63 @@ def install_oidc(mock: MockServer, prefix: str = "/oidc") -> None:
     mock.add("GET", f"{prefix}/config", config)
     mock.add("POST", f"{prefix}/token", token)
     mock.add("GET", f"{prefix}/userinfo", userinfo)
+
+
+def install_aria2(mock: MockServer, prefix: str = "/jsonrpc") -> None:
+    """aria2 JSON-RPC mock. aria2's remote control has a fixed POST /jsonrpc path."""
+
+    async def rpc(request: web.Request) -> web.Response:
+        try:
+            payload = cast(dict[str, object], await request.json())
+        except Exception:
+            return web.json_response(
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": "Parse error"},
+                },
+                status=400,
+            )
+
+        method = payload.get("method")
+        raw_params = payload.get("params", [])
+        params = cast(list[object], raw_params) if isinstance(raw_params, list) else []
+        request_id = payload.get("id")
+
+        if method == "system.listMethods":
+            return web.json_response(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": ["aria2.addUri", "aria2.tellStatus", "aria2.getVersion"],
+                }
+            )
+
+        if method == "aria2.addUri":
+            gid = f"mock-gid-{len(mock.state['aria2_params']) + 1}"
+            mock.state["aria2_params"].append(
+                {"method": method, "params": params, "gid": gid}
+            )
+            return web.json_response(
+                {"jsonrpc": "2.0", "id": request_id, "result": gid}
+            )
+
+        if method == "aria2.tellStatus":
+            gid = params[1] if len(params) > 1 else "unknown"
+            return web.json_response(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": {"gid": gid, "status": "complete"},
+                }
+            )
+
+        return web.json_response(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32601, "message": "Method not found"},
+            }
+        )
+
+    mock.add("POST", prefix, rpc)

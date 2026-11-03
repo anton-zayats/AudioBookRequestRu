@@ -7,7 +7,6 @@ from app.internal.audiobookshelf.client import background_abs_trigger_scan
 from app.internal.audiobookshelf.config import abs_config
 from app.internal.auth.authentication import ABRAuth, DetailedUser
 from app.internal.db_queries import get_wishlist_counts, get_wishlist_results
-from app.internal.download_backend import get_download_backend
 from app.internal.models import GroupEnum
 from app.routers.api.requests import mark_downloaded as api_mark_downloaded
 from app.util.db import get_session
@@ -29,18 +28,18 @@ async def downloaded(
         user=user,
         results=results,
         counts=counts,
-        show_sources=get_download_backend(session) == "prowlarr",
+        show_sources=True,
     )
 
 
-@router.patch("/hx-add/{asin}")
+@router.patch("/hx-add/{book_id}")
 async def update_downloaded(
-    asin: str,
+    book_id: str,
     session: Annotated[Session, Depends(get_session)],
     background_task: BackgroundTasks,
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
 ):
-    await api_mark_downloaded(asin, session, background_task, admin_user)
+    await api_mark_downloaded(book_id, session, background_task, admin_user)
 
     username = None if admin_user.is_admin() else admin_user.username
     results = get_wishlist_results(session, username, "not_downloaded")
@@ -55,6 +54,6 @@ async def update_downloaded(
         results=results,
         page="wishlist",
         counts=counts,
-        show_sources=get_download_backend(session) == "prowlarr",
+        show_sources=True,
         update_tablist=True,
     )

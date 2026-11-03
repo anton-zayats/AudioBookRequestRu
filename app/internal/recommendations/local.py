@@ -35,11 +35,11 @@ def get_popular_books(
 
     subquery = (
         select(
-            AudiobookRequest.asin,
+            AudiobookRequest.book_id,
             count(col(AudiobookRequest.user_username)).label("count"),
             func.max(col(AudiobookRequest.updated_at)).label("max_updated_at"),
         )
-        .group_by(AudiobookRequest.asin)
+        .group_by(col(AudiobookRequest.book_id))
         .having(count(col(AudiobookRequest.user_username)) >= min_requests)
     ).subquery()
 
@@ -48,7 +48,7 @@ def get_popular_books(
             Audiobook,
             cast(KeyedColumnElement[int], subquery.c.count),
         )
-        .join(subquery, col(Audiobook.asin) == subquery.c.asin)
+        .join(subquery, col(Audiobook.id) == subquery.c.book_id)
         .order_by(subquery.c.count.desc(), subquery.c.max_updated_at.desc())
         .limit(limit)
     )
@@ -57,8 +57,8 @@ def get_popular_books(
         query = query.where(~col(Audiobook.downloaded))
     if exclude_requested_username:  # removes all books requested by the excluded user
         query = query.where(
-            col(Audiobook.asin).not_in(
-                select(AudiobookRequest.asin).where(
+            col(Audiobook.id).not_in(
+                select(AudiobookRequest.book_id).where(
                     AudiobookRequest.user_username == exclude_requested_username
                 )
             )
@@ -80,7 +80,7 @@ def get_popular_books(
                 request_count=request_count,
             )
         )
-        logger.debug(f"Popular book: {book.asin} (requests: {request_count})")
+        logger.debug(f"Popular book: {book.id} (requests: {request_count})")
 
     return popular
 
@@ -97,12 +97,12 @@ def get_recently_requested_books(
 
     max_updated_at = func.max(col(AudiobookRequest.updated_at)).label("max_updated_at")
     recent_requests = (
-        select(col(AudiobookRequest.asin), max_updated_at)
+        select(col(AudiobookRequest.book_id), max_updated_at)
         .where(
             AudiobookRequest.updated_at >= cutoff_date,
             AudiobookRequest.user_username != exclude_requested_username,
         )
-        .group_by(col(AudiobookRequest.asin))
+        .group_by(col(AudiobookRequest.book_id))
         .order_by(max_updated_at.desc())
         .limit(limit)
         .subquery()
@@ -110,7 +110,7 @@ def get_recently_requested_books(
 
     query = (
         select(Audiobook)
-        .join(recent_requests, col(Audiobook.asin) == recent_requests.c.asin)
+        .join(recent_requests, col(Audiobook.id) == recent_requests.c.book_id)
         .order_by(
             cast(
                 KeyedColumnElement[datetime],
@@ -148,12 +148,12 @@ def get_most_popular_authors(
 ) -> AuthorNarrators:
     """Get the most popular authors based on how many users have requested their books."""
 
-    requested_asins = select(col(AudiobookRequest.asin)).distinct()
+    requested_book_ids = select(col(AudiobookRequest.book_id)).distinct()
     if username:
-        requested_asins = requested_asins.where(
+        requested_book_ids = requested_book_ids.where(
             AudiobookRequest.user_username == username
         )
-    query = select(Audiobook).where(col(Audiobook.asin).in_(requested_asins))
+    query = select(Audiobook).where(col(Audiobook.id).in_(requested_book_ids))
     if exclude_downloaded:
         query = query.where(~col(Audiobook.downloaded))
     audiobooks = session.exec(query).all()

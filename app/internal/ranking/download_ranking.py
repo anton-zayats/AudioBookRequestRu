@@ -1,32 +1,38 @@
 import asyncio
 from collections.abc import Callable
 from functools import cmp_to_key
-from typing import final
+from typing import cast, final
 
 import pydantic
 from aiohttp import ClientSession
-from rapidfuzz import fuzz, utils
+from rapidfuzz import fuzz
 from sqlmodel import Session
 
-from app.internal.models import Audiobook, ManualBookRequest, ProwlarrSource
+from app.internal.models import (
+    Audiobook,
+    DownloadSource,
+    ManualBookRequest,
+    TorrentSource,
+)
 from app.internal.ranking.quality import quality_config
 from app.internal.ranking.quality_extract import Quality, extract_qualities
 from app.util.log import logger
+from app.util.normalize import normalize_for_match
 
 
 class RankSource(pydantic.BaseModel):
-    source: ProwlarrSource
+    source: DownloadSource
     quality: Quality
 
 
 async def rank_sources(
     session: Session,
     client_session: ClientSession,
-    sources: list[ProwlarrSource],
+    sources: list[DownloadSource],
     book: Audiobook | ManualBookRequest,
     is_manual: bool = False,
-) -> list[ProwlarrSource]:
-    async def get_qualities(source: ProwlarrSource):
+) -> list[DownloadSource]:
+    async def get_qualities(source: DownloadSource):
         qualities = await extract_qualities(session, client_session, source, book)
         return [RankSource(source=source, quality=q) for q in qualities]
 
@@ -313,17 +319,22 @@ class CompareSource:
         return b_score - a_score
 
     def _compare_seeders(self, a: RankSource, b: RankSource, next_compare: int) -> int:
-        if a.source.protocol == "usenet" or b.source.protocol == "usenet":
+        if a.source.protocol in ("usenet", "direct") or b.source.protocol in (
+            "usenet",
+            "direct",
+        ):
             return self._get_next_compare(next_compare)(a, b, next_compare + 1)
-        if a.source.seeders == b.source.seeders:
+        a_source = cast(TorrentSource, a.source)
+        b_source = cast(TorrentSource, b.source)
+        if a_source.seeders == b_source.seeders:
             return self._get_next_compare(next_compare)(a, b, next_compare + 1)
-        return b.source.seeders - a.source.seeders
+        return b_source.seeders - a_source.seeders
 
     def _compare_age(self, a: RankSource, b: RankSource, next_compare: int) -> int:
         if a.source.protocol != b.source.protocol:
             return self._get_next_compare(next_compare)(a, b, next_compare + 1)
-        if a.source.protocol == "usenet":
-            # With usenets: newer => better
+        if a.source.protocol in ("usenet", "direct"):
+            # With usenet/direct: newer => better
             return int((a.source.publish_date - b.source.publish_date).total_seconds())
         # With torrents: older => better
         return int((b.source.publish_date - a.source.publish_date).total_seconds())
@@ -335,12 +346,14 @@ def fuzzy_author_narrator_match(
     """Calculate a fuzzy matching score between two lists of author/narrator names."""
     if not source_people or not book_people:
         return 0
+    normalized_source_people = [normalize_for_match(p) for p in source_people]
     score = 0
     for book_person in book_people:
+        normalized_book_person = normalize_for_match(book_person)
         best_match = 0.0
-        for source_person in source_people:
+        for source_person in normalized_source_people:
             match_score = fuzz.token_set_ratio(
-                book_person, source_person, processor=utils.default_process
+                normalized_book_person, source_person, processor=None
             )
             best_match = max(best_match, match_score)
 
@@ -352,16 +365,23 @@ def fuzzy_author_narrator_match(
 
 
 def vaguely_exist_in_title(words: list[str], title: str, name_exists_ratio: int) -> int:
+    normalized_title = normalize_for_match(title)
     return sum(
         1
         for w in words
-        if fuzz.token_set_ratio(w, title, processor=utils.default_process)
+        if fuzz.token_set_ratio(
+            normalize_for_match(w), normalized_title, processor=None
+        )
         > name_exists_ratio
     )
 
 
 def exists_in_title(word: str, title: str, title_exists_ratio: int) -> bool:
     return (
-        fuzz.partial_ratio(word, title, processor=utils.default_process)
+        fuzz.partial_ratio(
+            normalize_for_match(word),
+            normalize_for_match(title),
+            processor=None,
+        )
         > title_exists_ratio
     )

@@ -4,7 +4,6 @@ from aiohttp import ClientSession
 from fastapi import APIRouter, Depends, Query, Security
 from sqlmodel import Session
 
-from app.internal.audible.types import audible_region_type, get_region_from_settings
 from app.internal.auth.authentication import ABRAuth, DetailedUser
 from app.internal.models import GroupEnum
 from app.internal.prowlarr.util import prowlarr_config
@@ -26,25 +25,21 @@ router.include_router(manual.router)
 
 @router.get("")
 async def read_search(
-    client_session: Annotated[ClientSession, Depends(get_connection)],
     session: Annotated[Session, Depends(get_session)],
     user: Annotated[DetailedUser, Security(ABRAuth())],
+    client_session: Annotated[ClientSession, Depends(get_connection)],
     query: Annotated[str | None, Query(alias="q")] = None,
     num_results: int = 20,
     page: int = 0,
-    region: audible_region_type | None = None,
 ):
-    if region is None:
-        region = get_region_from_settings()
     try:
         results = await search_books(
             session=session,
-            client_session=client_session,
             user=user,
+            client_session=client_session,
             query=query,
             num_results=num_results,
             page=page,
-            region=region,
         )
 
         prowlarr_configured = prowlarr_config.is_valid(session)
@@ -54,7 +49,6 @@ async def read_search(
             user=user,
             search_term=query or "",
             search_results=results,
-            selected_region=region,
             page=page,
             auto_start_download=quality_config.get_auto_download(session)
             and user.is_above(GroupEnum.trusted),
@@ -71,12 +65,12 @@ async def read_search(
 
 @router.get("/hx-suggestions")
 async def search_suggestions(
+    session: Annotated[Session, Depends(get_session)],
     query: Annotated[str, Query(alias="q")],
     user: Annotated[DetailedUser, Security(ABRAuth())],
-    region: audible_region_type | None = None,
 ):
     if query.strip():
-        suggestions = await api_search_suggestions(query, user, region)
+        suggestions = await api_search_suggestions(session, query, user)
     else:
         suggestions = []
     return catalog_response(

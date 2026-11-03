@@ -91,7 +91,7 @@ async def _send(
 async def send_notification(
     session: Session,
     notification: Notification,
-    book_asin: str | None = None,
+    book_id: int | None = None,
     other_replacements: dict[str, str] | None = None,
 ) -> str | None:
     if other_replacements is None:
@@ -101,10 +101,8 @@ async def send_notification(
     book_narrators = None
     book_cover = None
     requesters: list[User] | None = None
-    if book_asin:
-        book = session.exec(
-            select(Audiobook).where(Audiobook.asin == book_asin)
-        ).first()
+    if book_id is not None:
+        book = session.get(Audiobook, book_id)
         if book:
             book_title = book.title
             book_authors = ",".join(book.authors)
@@ -112,8 +110,8 @@ async def send_notification(
             book_cover = book.cover_image
             requesters = [req.user for req in book.requests]
 
-        if "bookASIN" not in other_replacements:
-            other_replacements["bookASIN"] = book_asin
+        if "bookID" not in other_replacements:
+            other_replacements["bookID"] = str(book_id)
 
     body = _replace_variables(
         notification.body,
@@ -159,7 +157,7 @@ async def send_notification(
 
 async def send_all_notifications(
     event_type: EventEnum,
-    book_asin: str | None = None,
+    book_id: int | None = None,
     other_replacements: dict[str, str] | None = None,
 ):
     if other_replacements is None:
@@ -174,7 +172,7 @@ async def send_all_notifications(
             await send_notification(
                 session=session,
                 notification=notification,
-                book_asin=book_asin,
+                book_id=book_id,
                 other_replacements=other_replacements,
             )
 

@@ -2,9 +2,13 @@ import json
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal, cast, override
 
 from pydantic import BaseModel, ConfigDict
+from pydantic import Field as PydanticField
+from sqlalchemy import UniqueConstraint
+from sqlalchemy.engine import Dialect
+from sqlalchemy.types import TypeDecorator
 from sqlmodel import JSON, Column, DateTime, Field, SQLModel, func
 from sqlmodel._compat import SQLModelConfig
 from sqlmodel.main import Relationship
@@ -60,9 +64,21 @@ class User(BaseSQLModel, table=True):
 
 
 class Audiobook(BaseSQLModel, table=True):
-    """A cached Audible audiobook result. Used for both the search results and also linked to via a foreign key for requests."""
+    """A cached audiobook result, keyed by (source, external_id).
 
-    asin: str = Field(primary_key=True)
+    external_id is the old asin, generalized to a per-provider identifier.
+    """
+
+    __table_args__: tuple[UniqueConstraint] = (
+        UniqueConstraint(
+            "source", "external_id", name="uq_audiobook_source_external_id"
+        ),
+    )
+
+    id: int = Field(default=None, primary_key=True)
+    source: str = "livelib"
+    external_id: str
+    url: str | None = None
     title: str
     subtitle: str | None
     authors: list[str] = Field(default_factory=list, sa_column=Column(JSON))
@@ -104,10 +120,51 @@ class AudiobookWithRequests(BaseModel):
         return len(self.requests) > 0
 
 
+class SelectedRelease(BaseModel):
+    """A concrete release the requester chose to download.
+
+    ``title`` and ``narrators`` are display-only; dispatch keys on
+    ``(protocol, guid)``.
+    """
+
+    protocol: Literal["torrent", "usenet", "direct"]
+    guid: str
+    title: str | None = None
+    narrators: list[str] = PydanticField(default_factory=list)
+
+
+class _SelectedReleaseJSON(TypeDecorator[SelectedRelease]):
+    """JSON column type that round-trips :class:`SelectedRelease`.
+
+    SQLAlchemy's plain JSON type can only serialize dicts/lists, so a pydantic
+    model would fail on write and come back as a dict on read. This wrapper
+    serializes the model on bind and rebuilds it on load.
+    """
+
+    impl = JSON  # pyright: ignore[reportUnannotatedClassAttribute]
+    cache_ok = True  # pyright: ignore[reportUnannotatedClassAttribute]
+
+    @override
+    def process_bind_param(
+        self, value: SelectedRelease | None, dialect: Dialect
+    ) -> dict[str, object] | None:
+        if value is None:
+            return None
+        return value.model_dump(mode="json")
+
+    @override
+    def process_result_value(
+        self, value: object | None, dialect: Dialect
+    ) -> SelectedRelease | None:
+        if value is None:
+            return None
+        return SelectedRelease.model_validate(value)
+
+
 class AudiobookRequest(BaseSQLModel, table=True):
-    asin: str = Field(
+    book_id: int = Field(
         primary_key=True,
-        foreign_key="audiobook.asin",
+        foreign_key="audiobook.id",
         ondelete="CASCADE",
     )
     user_username: str = Field(
@@ -123,6 +180,10 @@ class AudiobookRequest(BaseSQLModel, table=True):
             type_=DateTime,
             nullable=False,
         ),
+    )
+    selected_release: SelectedRelease | None = Field(
+        default=None,
+        sa_column=Column(_SelectedReleaseJSON()),
     )
 
     audiobook: Audiobook = Relationship(back_populates="requests")  # pyright: ignore[reportAny]
@@ -212,8 +273,18 @@ class UsenetSource(BaseSource):
     grabs: int
 
 
+class DirectSource(BaseSource):
+    protocol: Literal["direct"] = "direct"
+    download_urls: list[str]
+    filetype: str | None = None
+
+
 ProwlarrSource = Annotated[
     TorrentSource | UsenetSource, Field(discriminator="protocol")
+]
+
+DownloadSource = Annotated[
+    TorrentSource | UsenetSource | DirectSource, Field(discriminator="protocol")
 ]
 
 

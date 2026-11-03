@@ -2,8 +2,8 @@
     result: QueryResult,
 #}
 
-{% set book_id = result.book.id if result.book.id is defined else result.book.asin %}
-{% set is_manual = result.book.id is defined %}
+{% set book_id = result.book.id %}
+{% set is_manual = result.book.publish_date is defined %}
 
 <div class="w-screen p-2 md:p-4 lg:p-8 flex flex-col gap-2" id="sources">
     <a preload
@@ -103,9 +103,13 @@
                             <td>
                                 {{ source.seeders }} / {{ source.leechers }}
                             </td>
-                        {% else %}
+                        {% elif source.protocol == "usenet" %}
                             <td>
                                 {{ source.grabs }} grabs
+                            </td>
+                        {% else %}
+                            <td>
+                                {{ source.download_urls|length }} file(s)
                             </td>
                         {% endif %}
                         <td>
@@ -127,6 +131,14 @@
                                        hx-on::after-request="if (event.detail.successful) this.disabled = true" />
                                 <input type="hidden" name="indexer_id" value="{{ source.indexer_id }}" />
                                 <input type="hidden" name="guid" value="{{ source.guid }}" />
+                                {% if source.protocol == "direct" %}
+                                    <input type="hidden" name="protocol" value="direct" />
+                                    <input type="hidden" name="title" value="{{ source.title }}" />
+                                    <input type="hidden" name="indexer" value="{{ source.indexer }}" />
+                                    {% for url in source.download_urls %}
+                                        <input type="hidden" name="download_urls" value="{{ url }}" />
+                                    {% endfor %}
+                                {% endif %}
                                 <span class="swap-off">
                                     <icons.Download />
                                 </span>

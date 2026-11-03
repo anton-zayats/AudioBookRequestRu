@@ -1,18 +1,14 @@
 from typing import Annotated
 
 from aiohttp import ClientSession
-from fastapi import APIRouter, Depends, HTTPException, Query, Security
+from fastapi import APIRouter, Depends, Query, Security
 from sqlmodel import Session
 
-from app.internal.audible.search import get_search_suggestions, search_audible_books
-from app.internal.audible.types import (
-    audible_region_type,
-    audible_regions,
-    get_region_from_settings,
-)
 from app.internal.audiobookshelf.client import abs_mark_downloaded_flags
 from app.internal.auth.authentication import AnyAuth, DetailedUser
-from app.internal.models import Audiobook, AudiobookWithRequests
+from app.internal.db_queries import upsert_audiobooks
+from app.internal.metadata.registry import get_provider
+from app.internal.models import AudiobookWithRequests
 from app.util.connection import get_connection
 from app.util.db import get_session
 
@@ -22,63 +18,38 @@ router = APIRouter(prefix="/search", tags=["Search"])
 @router.get("", response_model=list[AudiobookWithRequests])
 async def search_books(
     session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
     user: Annotated[DetailedUser, Security(AnyAuth())],
+    client_session: Annotated[ClientSession, Depends(get_connection)],
     query: Annotated[
         str | None,
         Query(alias="q", description="Search term (title, author, narrator)."),
     ] = None,
     num_results: Annotated[int, Query(description="Number of results to return.")] = 20,
     page: Annotated[int, Query(description="Page number, starting at 0.")] = 0,
-    region: Annotated[
-        audible_region_type | None,
-        Query(description="Audible region. Defaults to the configured region."),
-    ] = None,
-):
-    if region is None:
-        region = get_region_from_settings()
-    if audible_regions.get(region) is None:
-        raise HTTPException(status_code=400, detail="Invalid region")
-    if query:
-        results = await search_audible_books(
-            client_session=client_session,
-            query=query,
-            num_results=num_results,
-            page=page,
-            audible_region=region,
-        )
-    else:
-        results = []
+) -> list[AudiobookWithRequests]:
+    if not query or not query.strip():
+        return []
 
-    # refreshes the "requests"
-    merged: list[Audiobook] = []
-    for res in results:
-        merged.append(session.merge(res))
+    provider = get_provider(session)
+    books = await provider.search(query=query, num_results=num_results, page=page)
+    merged = upsert_audiobooks(session, books)
     session.commit()
-
-    # Check ABS for existing books and mark as downloaded if found
     await abs_mark_downloaded_flags(session, client_session, merged)
 
     return [
-        AudiobookWithRequests(
-            book=book,
-            requests=book.requests,
-            username=user.username,
-        )
+        AudiobookWithRequests(book=book, requests=book.requests, username=user.username)
         for book in merged
     ]
 
 
 @router.get("/suggestions", response_model=list[str])
 async def search_suggestions(
+    session: Annotated[Session, Depends(get_session)],
     query: Annotated[str, Query(alias="q", description="Search term.")],
-    _: Annotated[DetailedUser, Security(AnyAuth())],
-    region: Annotated[
-        audible_region_type | None,
-        Query(description="Audible region. Defaults to the configured region."),
-    ] = None,
-):
-    if region is None:
-        region = get_region_from_settings()
-    async with ClientSession() as client_session:
-        return await get_search_suggestions(client_session, query, region)
+    user: Annotated[DetailedUser, Security(AnyAuth())],
+) -> list[str]:
+    _ = user
+    if not query.strip():
+        return []
+    provider = get_provider(session)
+    return await provider.suggestions(query)

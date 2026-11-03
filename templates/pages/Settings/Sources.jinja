@@ -1,0 +1,54 @@
+{#def
+    user: DetailedUser,
+    enabled: bool,
+    knigavuhe_base_url: str,
+    max_candidates: int,
+#}
+
+<SettingsLayout user={{ user }} page="sources" title="Settings - Direct sources">
+
+<main class="flex flex-col gap-4">
+    <h2 class="text-lg">
+        Direct sources
+    </h2>
+    <p class="text-xs opacity-60">
+        Configure direct (non-tracker) download sources. Currently supported:
+        knigavuhe.org.
+    </p>
+    <form class="flex flex-col gap-2"
+          hx-post="{{ base_url }}/settings/sources/hx-save">
+        <label for="knigavuhe-enabled">
+            Enabled
+        </label>
+        <input id="knigavuhe-enabled"
+               name="enabled"
+               type="checkbox"
+               class="checkbox"
+               {% if enabled %}checked{% endif %} />
+        <label for="knigavuhe-base-url" class="pt-2">
+            Base URL
+        </label>
+        <input id="knigavuhe-base-url"
+               name="base_url"
+               type="text"
+               value="{{ knigavuhe_base_url }}"
+               class="input w-full"
+               minlength="1"
+               required />
+        <label for="knigavuhe-max-candidates" class="pt-2">
+            Max candidates
+        </label>
+        <input id="knigavuhe-max-candidates"
+               name="max_candidates"
+               type="number"
+               min="1"
+               value="{{ max_candidates }}"
+               class="input w-full"
+               required />
+        <button type="submit" class="btn btn-primary">
+            Save
+        </button>
+    </form>
+</main>
+
+</SettingsLayout>

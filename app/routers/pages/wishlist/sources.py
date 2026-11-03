@@ -1,11 +1,10 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from aiohttp import ClientSession
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Security
 from sqlmodel import Session
 
 from app.internal.auth.authentication import ABRAuth, DetailedUser
-from app.internal.download_backend import get_download_backend
 from app.internal.models import GroupEnum
 from app.routers.api.requests import DownloadSourceBody
 from app.routers.api.requests import download_book as api_download_book
@@ -18,20 +17,17 @@ from app.util.templates import catalog_response
 router = APIRouter(prefix="/sources")
 
 
-@router.get("/{asin}")
+@router.get("/{book_id}")
 async def list_sources(
-    asin: str,
+    book_id: str,
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
     only_body: bool = False,
 ):
-    if get_download_backend(session) == "chaptarr":
-        return BaseUrlRedirectResponse("/wishlist", status_code=302)
-
     try:
         result = await api_list_sources(
-            asin,
+            book_id,
             session,
             client_session,
             admin_user,
@@ -57,22 +53,31 @@ async def list_sources(
     )
 
 
-@router.post("/{asin}")
+@router.post("/{book_id}")
 async def download_book(
     background_task: BackgroundTasks,
-    asin: str,
+    book_id: str,
     guid: Annotated[str, Form()],
     indexer_id: Annotated[int, Form()],
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
     admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+    protocol: Annotated[Literal["torrent", "usenet", "direct"], Form()] = "torrent",
+    title: Annotated[str | None, Form()] = None,
+    indexer: Annotated[str | None, Form()] = None,
+    download_urls: Annotated[list[str] | None, Form()] = None,
 ):
-    if get_download_backend(session) == "chaptarr":
-        return BaseUrlRedirectResponse("/wishlist", status_code=302)
-    body = DownloadSourceBody(guid=guid, indexer_id=indexer_id)
+    body = DownloadSourceBody(
+        guid=guid,
+        indexer_id=indexer_id,
+        protocol=protocol,
+        title=title,
+        indexer=indexer,
+        download_urls=download_urls or [],
+    )
     return await api_download_book(
         background_task=background_task,
-        asin_or_uuid=asin,
+        book_ref=book_id,
         body=body,
         session=session,
         client_session=client_session,

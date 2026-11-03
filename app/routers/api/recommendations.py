@@ -1,71 +1,38 @@
 from collections.abc import Sequence
 from typing import Annotated
 
-from aiohttp import ClientSession
-from fastapi import APIRouter, Depends, Query, Security
+from fastapi import APIRouter, Depends, Security
 from sqlmodel import Session
 
-from app.internal.audible.category import (
-    list_category_audible_books,
-    list_combined_audible_books,
-)
-from app.internal.audible.types import audible_region_type, get_region_from_settings
 from app.internal.auth.authentication import AnyAuth, DetailedUser
-from app.internal.models import AudiobookWithRequests
+from app.internal.db_queries import upsert_audiobooks
+from app.internal.metadata.registry import get_provider
+from app.internal.models import Audiobook, AudiobookWithRequests
 from app.internal.recommendations.local import (
     AudiobookPopularity,
-    get_most_popular_authors,
     get_popular_books,
     get_recently_requested_books,
 )
-from app.internal.recommendations.user_recommendations import (
-    UserSimsRecommendation,
-    get_user_sims_recommendations,
-)
-from app.util.connection import get_connection
 from app.util.db import get_session
+from app.util.log import logger
 
 router = APIRouter(prefix="/recommendations", tags=["Recommendations"])
 
+FALLBACK_TERMS = [
+    "бестселлер",
+    "современная проза",
+    "детектив",
+    "фантастика",
+]
 
-def parse_seed_asins(seed_asins: list[str] | None) -> list[str] | None:
-    """Accept both repeated `seed_asins` params and one comma-separated value."""
-    if seed_asins is None:
-        return None
+
+def _with_requests(
+    books: list[Audiobook], username: str | None
+) -> list[AudiobookWithRequests]:
     return [
-        asin.strip()
-        for value in seed_asins
-        for asin in value.split(",")
-        if asin.strip()
+        AudiobookWithRequests(book=book, requests=book.requests, username=username)
+        for book in books
     ]
-
-
-@router.get("/user", response_model=UserSimsRecommendation)
-async def get_user_recommendations(
-    session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
-    user: Annotated[DetailedUser, Security(AnyAuth())],
-    seed_asins: Annotated[
-        list[str] | None,
-        Query(
-            alias="seed_asins",
-            description="ASINs to seed recommendations with. Repeat the parameter or pass a comma-separated list.",
-        ),
-    ] = None,
-    limit: Annotated[
-        int, Query(description="Maximum number of recommendations to return.")
-    ] = 20,
-    offset: Annotated[int, Query(description="Number of recommendations to skip.")] = 0,
-) -> UserSimsRecommendation:
-    recommendations = await get_user_sims_recommendations(
-        session=session,
-        client_session=client_session,
-        user=user,
-        seed_asins=parse_seed_asins(seed_asins),
-        limit=limit,
-        offset=offset,
-    )
-    return recommendations
 
 
 @router.get("/popular", response_model=list[AudiobookPopularity])
@@ -102,110 +69,41 @@ async def get_recently_requested_recommendations(
     )
 
 
-@router.get("/fallback", response_model=list[AudiobookWithRequests])
-async def get_fallback_recommendations(
-    session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
-    user: Annotated[DetailedUser, Security(AnyAuth())],
-    limit: int = 10,
-    audible_region: audible_region_type | None = None,
-) -> list[AudiobookWithRequests]:
-    """Get fallback popular recommendations from Audible search. Does not take into account user history or preference."""
-
-    if audible_region is None:
-        audible_region = get_region_from_settings()
-
-    popular_search_terms = [
-        "bestseller",
-        "james clear",
-        "atomic habits",
-        "stephen king",
-        "psychology",
-        "biography",
-        "business",
-        "self help",
-    ]
-    return await list_combined_audible_books(
-        session=session,
-        client_session=client_session,
-        search_terms=popular_search_terms,
-        num_results=limit,
-        audible_region=audible_region,
-        exclude_requested_username=user.username,
-    )
-
-
 @router.get("/categories", response_model=dict[str, list[AudiobookWithRequests]])
-async def get_category_recommendations(
+async def get_categories(
     session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
     user: Annotated[DetailedUser, Security(AnyAuth())],
-    audible_region: audible_region_type | None = None,
 ) -> dict[str, list[AudiobookWithRequests]]:
-    """Get recommendations by popular categories from Audible search."""
+    provider = get_provider(session)
+    categories = await provider.categories()
 
-    if audible_region is None:
-        audible_region = get_region_from_settings()
-
-    return await list_category_audible_books(
-        session=session,
-        client_session=client_session,
-        audible_region=audible_region,
-        excluded_requested_username=user.username,
-    )
+    result: dict[str, list[AudiobookWithRequests]] = {}
+    for category, books in categories.items():
+        merged = upsert_audiobooks(session, books)
+        session.commit()
+        result[category] = _with_requests(merged, user.username)
+    return result
 
 
-@router.get("/authors", response_model=list[AudiobookWithRequests])
-async def get_popular_authors_recommendations(
+@router.get("/fallback", response_model=list[AudiobookWithRequests])
+async def get_fallback(
     session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
     user: Annotated[DetailedUser, Security(AnyAuth())],
-    limit: int = 10,
-    exclude_downloaded: bool = True,
-    audible_region: audible_region_type | None = None,
-    personal_favorites: bool = True,
 ) -> list[AudiobookWithRequests]:
-    if audible_region is None:
-        audible_region = get_region_from_settings()
+    provider = get_provider(session)
+    books: list[Audiobook] = []
+    seen: set[str] = set()
+    for term in FALLBACK_TERMS:
+        try:
+            found = await provider.search(term, num_results=6)
+        except Exception as exc:
+            logger.error("fallback search failed", term=term, error=str(exc))
+            continue
+        for book in found:
+            if book.external_id not in seen:
+                seen.add(book.external_id)
+                books.append(book)
 
-    author_narrators = get_most_popular_authors(
-        session=session,
-        limit=limit,
-        exclude_downloaded=exclude_downloaded,
-        username=user.username if personal_favorites else None,
-    )
-    return await list_combined_audible_books(
-        session=session,
-        client_session=client_session,
-        search_terms=author_narrators.authors,
-        num_results=limit,
-        audible_region=audible_region,
-    )
-
-
-@router.get("/narrators", response_model=list[AudiobookWithRequests])
-async def get_popular_narrators_recommendations(
-    session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
-    user: Annotated[DetailedUser, Security(AnyAuth())],
-    limit: int = 10,
-    exclude_downloaded: bool = True,
-    audible_region: audible_region_type | None = None,
-    personal_favorites: bool = True,
-) -> list[AudiobookWithRequests]:
-    if audible_region is None:
-        audible_region = get_region_from_settings()
-
-    author_narrators = get_most_popular_authors(
-        session=session,
-        limit=limit,
-        exclude_downloaded=exclude_downloaded,
-        username=user.username if personal_favorites else None,
-    )
-    return await list_combined_audible_books(
-        session=session,
-        client_session=client_session,
-        search_terms=author_narrators.narrators,
-        num_results=limit,
-        audible_region=audible_region,
-    )
+    merged = upsert_audiobooks(session, books)
+    session.commit()
+    return _with_requests(merged, user.username)

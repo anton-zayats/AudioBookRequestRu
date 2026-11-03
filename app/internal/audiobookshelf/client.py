@@ -168,17 +168,16 @@ async def abs_list_library_items(
             else:
                 release_date = datetime.now(UTC)
 
-            if not metadata.asin or not title:
+            if not title:
                 logger.warning(
-                    "ABS: skipping library item with missing ASIN or title",
+                    "ABS: skipping library item with missing title",
                     item_id=item.id,
-                    asin=metadata.asin,
                     title=title,
                 )
                 continue
 
             book = Audiobook(
-                asin=metadata.asin,
+                external_id=item.id,
                 title=title,
                 subtitle=subtitle,
                 authors=authors,
@@ -242,30 +241,14 @@ async def abs_book_exists(
     client_session: ClientSession,
     book: Audiobook,
 ) -> bool:
-    """
-    Heuristic check if a book exists in ABS library by searching by ASIN and title/author.
-    """
-    # Try ASIN first
-    candidates: list[ABSBookItem] = []
-    if book.asin:
-        candidates = await _abs_search(session, client_session, book.asin)
-        logger.debug(
-            "ABS: ASIN search results",
-            asin=book.asin,
-            candidate_count=len(candidates),
-        )
-    if not candidates:
-        logger.debug(
-            "ABS: ASIN search yielded no results. Checking with title",
-            asin=book.asin,
-        )
-        q = f"{book.title}".strip()
-        candidates = await _abs_search(session, client_session, q)
-        logger.debug(
-            "ABS: title search results",
-            title=book.title,
-            candidate_count=len(candidates),
-        )
+    """Heuristic check if a book exists in ABS library by searching by title and author."""
+    q = f"{book.title} {' '.join(book.authors)}".strip()
+    candidates = await _abs_search(session, client_session, q)
+    logger.debug(
+        "ABS: title search results",
+        title=book.title,
+        candidate_count=len(candidates),
+    )
 
     if not candidates:
         return False
@@ -302,12 +285,12 @@ async def abs_mark_downloaded_flags(
     async def _check_and_mark(b: Audiobook):
         try:
             exists = await abs_book_exists(session, client_session, b)
-            logger.debug("ABS: exist check", asin=b.asin, exists=exists)
+            logger.debug("ABS: exist check", book_id=b.id, exists=exists)
             if exists:
                 b.downloaded = True
                 session.add(b)
         except Exception as e:
-            logger.debug("ABS: failed exist check", asin=b.asin, error=str(e))
+            logger.debug("ABS: failed exist check", book_id=b.id, error=str(e))
 
     await asyncio.gather(*[_check_and_mark(b) for b in to_check])
     session.commit()

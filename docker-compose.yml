@@ -1,5 +1,5 @@
 services:
-  # chaptarr requires 1000:1000 dir perms, but also nice to have the config dir owned by the user
+  # services run as 1000:1000, so ensure the config/data dirs match
   init:
     profiles: [local]
     image: alpine
@@ -57,23 +57,6 @@ services:
       init:
         condition: service_completed_successfully
 
-  chaptarr:
-    profiles: [local]
-    image: chaptarr/chaptarr:latest
-    environment:
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
-      TZ: ${TZ:-UTC}
-    volumes:
-      - ./data/chaptarr:/config
-      - ./data/audiobooks:/audiobooks
-      - ./data/downloads:/downloads
-    ports:
-      - "8789:8789"
-    depends_on:
-      init:
-        condition: service_completed_successfully
-
   qbittorrent:
     profiles: [local]
     image: lscr.io/linuxserver/qbittorrent:latest
@@ -90,6 +73,39 @@ services:
       - "8081:8081"
       - "6881:6881"
       - "6881:6881/udp"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  # Optional Decypharr (debrid gateway) for torrent results via Prowlarr (Path B).
+  # Configure it as a qBittorrent download client in Prowlarr (see README).
+  decypharr:
+    profiles: [local]
+    image: ghcr.io/sirrobot01/decypharr:latest
+    volumes:
+      - ./data/decypharr:/config
+    ports:
+      - "8282:8282"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  # Direct (non-tracker) downloads are handed to an aria2 JSON-RPC server.
+  # The RPC secret is set via ABR_ARIA2_RPC_SECRET (default `abr-dev-secret`);
+  # configure the same secret in ABR under Settings -> Download, with host
+  # `aria2`, port `6800`, and base download directory `/downloads`.
+  aria2:
+    profiles: [local]
+    image: p3terx/aria2-pro
+    environment:
+      RPC_SECRET: ${ABR_ARIA2_RPC_SECRET:-abr-dev-secret}
+    volumes:
+      # /downloads (host ./tmp/downloads) is where direct downloads land.
+      # Point Audiobookshelf's library folder at this directory so its scan
+      # picks up newly downloaded books.
+      - ./tmp/downloads:/downloads
+    ports:
+      - "6800:6800"
     depends_on:
       init:
         condition: service_completed_successfully

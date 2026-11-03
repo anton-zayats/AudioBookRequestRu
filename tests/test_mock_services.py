@@ -31,22 +31,6 @@ async def test_prowlarr_double(mock_server: MockServer) -> None:
 
 
 @pytest.mark.anyio
-async def test_chaptarr_double(mock_server: MockServer) -> None:
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            f"{mock_server.base_url}/chaptarr/api/v1/system/status"
-        ) as r:
-            assert r.status == 200
-            data = cast(object, await r.json())
-            assert isinstance(data, dict)
-            status = cast(dict[str, object], data)
-            assert status["appName"] == "Chaptarr"
-
-        async with session.get(f"{mock_server.base_url}/chaptarr/api/v1/indexer") as r:
-            assert r.status == 200
-
-
-@pytest.mark.anyio
 async def test_notification_double(mock_server: MockServer) -> None:
     async with (
         aiohttp.ClientSession() as session,

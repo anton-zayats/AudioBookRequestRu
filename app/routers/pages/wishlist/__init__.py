@@ -6,7 +6,6 @@ from sqlmodel import Session
 
 from app.internal.auth.authentication import ABRAuth, DetailedUser
 from app.internal.db_queries import get_wishlist_counts, get_wishlist_results
-from app.internal.download_backend import get_download_backend
 from app.internal.models import GroupEnum
 from app.routers.api.requests import delete_request as api_delete_request
 from app.routers.api.requests import start_auto_download_endpoint
@@ -36,18 +35,18 @@ async def wishlist(
         user=user,
         results=results,
         counts=counts,
-        show_sources=get_download_backend(session) == "prowlarr",
+        show_sources=True,
     )
 
 
-@router.post("/hx-auto-download/{asin}")
+@router.post("/hx-auto-download/{book_id}")
 async def start_auto_download(
-    asin: str,
+    book_id: str,
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
     user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.trusted))],
 ):
-    await start_auto_download_endpoint(asin, session, client_session, user)
+    await start_auto_download_endpoint(book_id, session, client_session, user)
     username = None if user.is_admin() else user.username
     results = get_wishlist_results(session, username, "not_downloaded")
     counts = get_wishlist_counts(session, user)
@@ -58,19 +57,19 @@ async def start_auto_download(
         results=results,
         page="wishlist",
         counts=counts,
-        show_sources=get_download_backend(session) == "prowlarr",
+        show_sources=True,
         update_tablist=True,
     )
 
 
-@router.delete("/hx-delete/{asin}")
+@router.delete("/hx-delete/{book_id}")
 async def delete_request(
-    asin: str,
+    book_id: str,
     session: Annotated[Session, Depends(get_session)],
     user: Annotated[DetailedUser, Security(ABRAuth())],
     downloaded: bool | None = None,
 ):
-    await api_delete_request(asin, session, user)
+    await api_delete_request(book_id, session, user)
 
     counts = get_wishlist_counts(session, user)
 
@@ -86,7 +85,7 @@ async def delete_request(
             results=results,
             page="downloaded",
             counts=counts,
-            show_sources=get_download_backend(session) == "prowlarr",
+            show_sources=True,
             update_tablist=True,
         )
     else:
@@ -101,6 +100,6 @@ async def delete_request(
             results=results,
             page="wishlist",
             counts=counts,
-            show_sources=get_download_backend(session) == "prowlarr",
+            show_sources=True,
             update_tablist=True,
         )

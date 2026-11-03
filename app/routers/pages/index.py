@@ -1,26 +1,15 @@
 from typing import Annotated
 
-from aiohttp import ClientSession
-from fastapi import APIRouter, Depends, Query, Security
+from fastapi import APIRouter, Depends, Security
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from app.internal.audible.types import audible_region_type, get_region_from_settings
 from app.internal.auth.authentication import ABRAuth, DetailedUser
 from app.internal.models import AudiobookWithRequests
 from app.internal.ranking.quality import quality_config
 from app.internal.recommendations.local import get_popular_books
 from app.routers.api.recommendations import (
-    get_category_recommendations as api_get_category_recommendations,
-)
-from app.routers.api.recommendations import (
-    get_fallback_recommendations as api_get_fallback_recommendations,
-)
-from app.routers.api.recommendations import (
-    get_popular_authors_recommendations as api_get_popular_authors_recommendations,
-)
-from app.routers.api.recommendations import (
-    get_popular_narrators_recommendations as api_get_popular_narrators_recommendations,
+    get_categories as api_get_categories,
 )
 from app.routers.api.recommendations import (
     get_popular_recommendations as api_get_popular_recommendations,
@@ -28,10 +17,6 @@ from app.routers.api.recommendations import (
 from app.routers.api.recommendations import (
     get_recently_requested_recommendations as api_get_recently_requested_recommendations,
 )
-from app.routers.api.recommendations import (
-    get_user_recommendations as api_get_user_recommendations,
-)
-from app.util.connection import get_connection
 from app.util.db import get_session
 from app.util.templates import catalog_response
 
@@ -54,38 +39,8 @@ def read_root(
     return catalog_response(
         "Index.Index",
         user=user,
-        region=get_region_from_settings(),
         auto_download=quality_config.get_auto_download(session),
         show_popular=show_popular,
-    )
-
-
-@router.get("/hx-for-you")
-async def get_user_recommendations(
-    session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
-    user: Annotated[DetailedUser, Security(ABRAuth())],
-    seed_asins: Annotated[list[str] | None, Query(alias="seed_asins")] = None,
-    limit: int = 20,
-):
-    result = await api_get_user_recommendations(
-        session=session,
-        client_session=client_session,
-        user=user,
-        seed_asins=seed_asins,
-        limit=limit,
-    )
-
-    return catalog_response(
-        "Index.PopularSection",
-        title="For You",
-        user=user,
-        reasons=result.recommendations,
-        view_more="/recommendations/for-you",
-        description="Personalized recommendations based on your requests",
-        empty="No recommendations available at this time. Request some books to start getting recommendations.",
-        region=get_region_from_settings(),
-        auto_start_download=quality_config.get_auto_download(session),
     )
 
 
@@ -112,42 +67,8 @@ async def get_popular_recommendations(
         reasons=result,
         description="The most popular books on the instance",
         empty="No popular recommendations available at this time. Request some books to start getting recommendations.",
-        region=get_region_from_settings(),
         auto_start_download=quality_config.get_auto_download(session),
     )
-
-
-@router.get("/hx-categories")
-async def get_category_recommendations(
-    session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
-    user: Annotated[DetailedUser, Security(ABRAuth())],
-    audible_region: audible_region_type | None = None,
-):
-    result = await api_get_category_recommendations(
-        session=session,
-        client_session=client_session,
-        user=user,
-        audible_region=audible_region,
-    )
-
-    region = audible_region or get_region_from_settings()
-
-    return catalog_response(
-        "Index.Categories",
-        categories=result,
-        region=region,
-        auto_start_download=quality_config.get_auto_download(session),
-        user=user,
-    )
-
-
-"""
-
-UNUSED ENDPOINTS
-
-
-"""
 
 
 class _AudiobookReasonWrapper(BaseModel):
@@ -183,119 +104,21 @@ async def get_recently_requested_recommendations(
         user=user,
         description="Books that have been recently requested by users on the instance",
         empty="No recently requested recommendations available at this time. Request some books to start getting recommendations.",
-        region=get_region_from_settings(),
         auto_start_download=quality_config.get_auto_download(session),
     )
 
 
-@router.get("/hx-fallback")
-async def get_fallback_recommendations(
+@router.get("/hx-categories")
+async def get_categories(
     session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
     user: Annotated[DetailedUser, Security(ABRAuth())],
-    limit: int = 10,
-    audible_region: audible_region_type | None = None,
 ):
-    """Get fallback popular recommendations from Audible search. Does not take into account user history or preference."""
-
-    result = await api_get_fallback_recommendations(
-        session=session,
-        client_session=client_session,
-        user=user,
-        limit=limit,
-        audible_region=audible_region,
-    )
-
-    reasons = [
-        _AudiobookReasonWrapper(book=book, reason="Popular on Audible")
-        for book in result
-    ]
-
-    region = audible_region or get_region_from_settings()
-
+    categories = await api_get_categories(session=session, user=user)
     return catalog_response(
-        "Index.PopularSection",
-        title="Popular on Audible",
-        reasons=reasons,
+        "Index.Categories",
+        title="Browse by Category",
         user=user,
-        description="Popular books from Audible",
-        empty="No fallback recommendations available at this time.",
-        region=region,
-        auto_start_download=quality_config.get_auto_download(session),
-    )
-
-
-@router.get("/hx-authors")
-async def get_popular_authors_recommendations(
-    session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
-    user: Annotated[DetailedUser, Security(ABRAuth())],
-    limit: int = 10,
-    exclude_downloaded: bool = True,
-    audible_region: audible_region_type | None = None,
-    personal_favorites: bool = True,
-):
-    result = await api_get_popular_authors_recommendations(
-        session=session,
-        client_session=client_session,
-        user=user,
-        limit=limit,
-        exclude_downloaded=exclude_downloaded,
-        audible_region=audible_region,
-        personal_favorites=personal_favorites,
-    )
-
-    reasons = [
-        _AudiobookReasonWrapper(book=book, reason="Popular author") for book in result
-    ]
-
-    region = audible_region or get_region_from_settings()
-
-    return catalog_response(
-        "Index.PopularSection",
-        title="Popular Authors",
-        reasons=reasons,
-        user=user,
-        description="Books from popular authors",
-        empty="No popular author recommendations available at this time. Request some books to start getting recommendations.",
-        region=region,
-        auto_start_download=quality_config.get_auto_download(session),
-    )
-
-
-@router.get("/hx-narrators")
-async def get_popular_narrators_recommendations(
-    session: Annotated[Session, Depends(get_session)],
-    client_session: Annotated[ClientSession, Depends(get_connection)],
-    user: Annotated[DetailedUser, Security(ABRAuth())],
-    limit: int = 10,
-    exclude_downloaded: bool = True,
-    audible_region: audible_region_type | None = None,
-    personal_favorites: bool = True,
-):
-    result = await api_get_popular_narrators_recommendations(
-        session=session,
-        client_session=client_session,
-        user=user,
-        limit=limit,
-        exclude_downloaded=exclude_downloaded,
-        audible_region=audible_region,
-        personal_favorites=personal_favorites,
-    )
-
-    reasons = [
-        _AudiobookReasonWrapper(book=book, reason="Popular narrator") for book in result
-    ]
-
-    region = audible_region or get_region_from_settings()
-
-    return catalog_response(
-        "Index.PopularSection",
-        title="Popular Narrators",
-        reasons=reasons,
-        user=user,
-        description="Books from popular narrators",
-        empty="No popular narrator recommendations available at this time. Request some books to start getting recommendations.",
-        region=region,
+        categories=categories,
+        description="Explore popular Russian audiobooks by category",
         auto_start_download=quality_config.get_auto_download(session),
     )

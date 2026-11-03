@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Configure the local compose stack so ABR -> Chaptarr -> Prowlarr -> qBittorrent works.
+"""Configure the local compose stack so ABR -> Prowlarr -> qBittorrent works.
 
-Run after `docker compose --profile local up`. Idempotent: existing root folders,
-clients, indexers and settings are left alone.
+Run after `docker compose --profile local up`. Idempotent: existing indexers,
+download clients and settings are left alone.
 """
 
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
@@ -23,12 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 ABR = os.environ.get("ABR_URL", "http://localhost:8000")
 PROWLARR = os.environ.get("PROWLARR_URL", "http://localhost:9696")
-CHAPTARR = os.environ.get("CHAPTARR_URL", "http://localhost:8789")
 QBITTORRENT = os.environ.get("QBITTORRENT_URL", "http://localhost:8081")
 
 # URLs used between containers.
 PROWLARR_INTERNAL = os.environ.get("PROWLARR_INTERNAL_URL", "http://prowlarr:9696")
-CHAPTARR_INTERNAL = os.environ.get("CHAPTARR_INTERNAL_URL", "http://chaptarr:8789")
 
 ABR_USER = os.environ.get("ABR_USER", "a")
 ABR_PASSWORD = os.environ.get("ABR_PASSWORD", "a")
@@ -163,58 +161,7 @@ def configure_qbittorrent() -> None:
     print("qBittorrent: password set")
 
 
-def configure_chaptarr(key: str) -> None:
-    _, roots = get(CHAPTARR, key, "/api/v1/rootfolder?mediaType=audiobook")
-    if not list_of(roots):
-        _, quality = get(CHAPTARR, key, "/api/v1/qualityprofile")
-        quality_profiles = list_of(quality)
-        audiobook = [
-            p for p in quality_profiles if p.get("profileType") == "audiobook"
-        ] or quality_profiles
-        _, metadata = get(CHAPTARR, key, "/api/v1/metadataprofile")
-        metadata_profiles = list_of(metadata)
-        if not audiobook or not metadata_profiles:
-            raise SystemExit("Chaptarr has no quality/metadata profiles")
-        status, body = post(
-            CHAPTARR,
-            key,
-            "/api/v1/rootfolder",
-            {
-                "name": "Audiobooks",
-                "path": "/audiobooks",
-                "folderType": 1,
-                "audiobook": {
-                    "qualityProfileId": audiobook[0]["id"],
-                    "metadataProfileId": metadata_profiles[0]["id"],
-                    "monitored": True,
-                },
-            },
-        )
-        if status >= 400:
-            raise SystemExit(f"failed to add Chaptarr root folder: {body}")
-        print("Chaptarr: audiobook root folder added")
-
-    _, clients = get(CHAPTARR, key, "/api/v1/downloadclient")
-    if not any(c.get("implementation") == "QBittorrent" for c in list_of(clients)):
-        _, schemas = get(CHAPTARR, key, "/api/v1/downloadclient/schema")
-        client = next(
-            c for c in list_of(schemas) if c.get("implementation") == "QBittorrent"
-        )
-        client.update(name="qBittorrent", enable=True, protocol="torrent", tags=[])
-        set_field(client, "host", "qbittorrent")
-        set_field(client, "port", 8081)
-        set_field(client, "username", QBIT_USER)
-        set_field(client, "password", QBIT_PASSWORD)
-        set_field(client, "audiobookCategory", "chaptarr")
-        status, body = post(
-            CHAPTARR, key, "/api/v1/downloadclient?forceSave=true", client
-        )
-        if status >= 400:
-            raise SystemExit(f"failed to add qBittorrent: {body}")
-        print("Chaptarr: qBittorrent download client added")
-
-
-def configure_prowlarr(key: str, chaptarr_key: str) -> None:
+def configure_prowlarr(key: str) -> None:
     _, profiles = get(PROWLARR, key, "/api/v1/appprofile")
     app_profiles = list_of(profiles)
 
@@ -238,33 +185,29 @@ def configure_prowlarr(key: str, chaptarr_key: str) -> None:
             raise SystemExit(f"failed to add The Pirate Bay: {body}")
         print("Prowlarr: The Pirate Bay added")
 
-    _, applications = get(PROWLARR, key, "/api/v1/applications")
-    if not any(a.get("name") == "Chaptarr" for a in list_of(applications)):
-        _, schemas = get(PROWLARR, key, "/api/v1/applications/schema")
-        application = next(
-            a for a in list_of(schemas) if a.get("implementation") == "Readarr"
+    _, download_clients = get(PROWLARR, key, "/api/v1/downloadclient")
+    if not any(
+        c.get("implementation") == "QBittorrent" for c in list_of(download_clients)
+    ):
+        _, schemas = get(PROWLARR, key, "/api/v1/downloadclient/schema")
+        client = next(
+            c for c in list_of(schemas) if c.get("implementation") == "QBittorrent"
         )
-        application.update(name="Chaptarr", syncLevel="addOnly", tags=[])
-        set_field(application, "prowlarrUrl", PROWLARR_INTERNAL)
-        set_field(application, "baseUrl", CHAPTARR_INTERNAL)
-        set_field(application, "apiKey", chaptarr_key)
-        set_field(application, "syncCategories", [3030])
-        status, body = post(PROWLARR, key, "/api/v1/applications", application)
+        client.update(name="qBittorrent", enable=True, protocol="torrent", tags=[])
+        set_field(client, "host", "qbittorrent")
+        set_field(client, "port", 8081)
+        set_field(client, "username", QBIT_USER)
+        set_field(client, "password", QBIT_PASSWORD)
+        set_field(client, "category", "abr")
+        status, body = post(
+            PROWLARR, key, "/api/v1/downloadclient?forceSave=true", client
+        )
         if status >= 400:
-            raise SystemExit(f"failed to add Chaptarr application: {body}")
-        print("Prowlarr: Chaptarr application added")
-
-    # Give Prowlarr a moment to push indexers to Chaptarr.
-    for _ in range(30):
-        _, indexers = get(CHAPTARR, chaptarr_key, "/api/v1/indexer")
-        if list_of(indexers):
-            print("Prowlarr: indexers synced to Chaptarr")
-            return
-        time.sleep(2)
-    raise SystemExit("Prowlarr did not sync indexers to Chaptarr")
+            raise SystemExit(f"failed to add qBittorrent: {body}")
+        print("Prowlarr: qBittorrent download client added")
 
 
-def configure_abr(chaptarr_key: str) -> None:
+def configure_abr(prowlarr_key: str) -> None:
     cookies = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
     status, body = request(
@@ -292,16 +235,15 @@ def configure_abr(chaptarr_key: str) -> None:
             "could not log in to ABR; set ABR_USER/ABR_PASSWORD to an admin account"
         )
 
-    write("/api/settings/chaptarr/base-url", {"base_url": CHAPTARR_INTERNAL})
-    write("/api/settings/chaptarr/api-key", {"api_key": chaptarr_key})
-    write("/api/settings/prowlarr/backend", {"backend": "chaptarr"})
+    write("/api/settings/prowlarr/base-url", {"base_url": PROWLARR_INTERNAL})
+    write("/api/settings/prowlarr/api-key", {"api_key": prowlarr_key})
 
     if not settings.get("auto_download"):
         settings["auto_download"] = True
         status, body = abr("/api/settings/download", "PATCH", settings)
         if status >= 400:
             raise SystemExit(f"ABR rejected /api/settings/download: {status} {body}")
-    print("ABR: Chaptarr configured and auto-download enabled")
+    print("ABR: Prowlarr configured and auto-download enabled")
 
 
 def main() -> None:
@@ -310,22 +252,18 @@ def main() -> None:
         flush=True,
     )
     wait_for(PROWLARR + "/ping", label="Prowlarr")
-    wait_for(CHAPTARR + "/ping", label="Chaptarr")
     wait_for(ABR + "/api/health", label="ABR")
     wait_for(QBITTORRENT + "/api/v2/app/version", label="qBittorrent")
 
     prowlarr_key = api_key(ROOT / "data/prowlarr/config.xml")
-    chaptarr_key = api_key(ROOT / "data/chaptarr/config.xml")
 
     print("Configuring qBittorrent ...", flush=True)
     configure_qbittorrent()
-    print("Configuring Chaptarr ...", flush=True)
-    configure_chaptarr(chaptarr_key)
     print("Configuring Prowlarr ...", flush=True)
-    configure_prowlarr(prowlarr_key, chaptarr_key)
+    configure_prowlarr(prowlarr_key)
     print("Configuring ABR ...", flush=True)
-    configure_abr(chaptarr_key)
-    print("local stack ready: request a book in ABR to download it through Chaptarr")
+    configure_abr(prowlarr_key)
+    print("local stack ready: request a book in ABR to download it through Prowlarr")
 
 
 if __name__ == "__main__":

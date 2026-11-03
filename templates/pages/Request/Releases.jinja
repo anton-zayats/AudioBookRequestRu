@@ -1,0 +1,8 @@
+{#def
+    result: QueryResult,
+    user: DetailedUser,
+#}
+
+<BaseLayout title={{"Choose release - " + result.book.title}} user={{ user }}>
+<Request.ReleasesContent result={{ result }} user={{ user }} />
+</BaseLayout>

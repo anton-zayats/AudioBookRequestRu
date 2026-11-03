@@ -30,9 +30,6 @@ class ApplicationSettings(BaseModel):
     forwarded_allow_ips: str = "127.0.0.1"
     """Trusted proxy IPs for forwarded headers. Used by Uvicorn's --forwarded-allow-ips."""
 
-    default_region: str = "us"
-    """Default region used in the search"""
-
     force_login_type: str = ""
     """Forces the login type used. If set, the login type cannot be changed in the UI."""
 

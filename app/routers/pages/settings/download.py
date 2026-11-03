@@ -1,9 +1,15 @@
 from typing import Annotated
 
+from aiohttp import ClientSession
 from fastapi import APIRouter, Depends, Form, Response, Security
 from sqlmodel import Session
 
 from app.internal.auth.authentication import ABRAuth, DetailedUser
+from app.internal.downloads.aria2 import Aria2Client, DownloadClientError
+from app.internal.downloads.config import (
+    DownloadClientMisconfigured,
+    download_client_config,
+)
 from app.internal.models import GroupEnum
 from app.internal.ranking.quality import IndexerFlag, QualityRange, quality_config
 from app.routers.api.settings.download import (
@@ -12,6 +18,7 @@ from app.routers.api.settings.download import (
 from app.routers.api.settings.download import (
     update_download_settings as api_update_download_settings,
 )
+from app.util.connection import get_connection
 from app.util.db import get_session
 from app.util.templates import catalog_response, catalog_response_toast
 
@@ -33,6 +40,10 @@ def read_download(
     name_ratio = quality_config.get_name_exists_ratio(session)
     title_ratio = quality_config.get_title_exists_ratio(session)
     flags = quality_config.get_indexer_flags(session)
+    download_client_host = download_client_config.get_host(session)
+    download_client_port = download_client_config.get_port(session)
+    download_client_rpc_secret = download_client_config.get_rpc_secret(session)
+    download_client_dir = download_client_config.get_dir(session)
 
     return catalog_response(
         "Settings.Download.Index",
@@ -47,6 +58,10 @@ def read_download(
         name_ratio=name_ratio,
         title_ratio=title_ratio,
         indexer_flags=flags,
+        download_client_host=download_client_host,
+        download_client_port=download_client_port,
+        download_client_rpc_secret=download_client_rpc_secret,
+        download_client_dir=download_client_dir,
     )
 
 
@@ -151,4 +166,92 @@ def remove_indexer_flag(
     return catalog_response(
         "Settings.Download.IndexerFlags",
         indexer_flags=flags,
+    )
+
+
+@router.post("/hx-download-client")
+def update_download_client(
+    download_client_host: Annotated[str, Form()],
+    download_client_port: Annotated[int, Form()],
+    download_client_dir: Annotated[str, Form()],
+    session: Annotated[Session, Depends(get_session)],
+    admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+    download_client_rpc_secret: Annotated[str, Form()] = "",
+):
+    _ = admin_user
+    download_client_config.set_host(session, download_client_host)
+    download_client_config.set_port(session, download_client_port)
+    if download_client_rpc_secret:
+        download_client_config.set_rpc_secret(session, download_client_rpc_secret)
+    download_client_config.set_dir(session, download_client_dir)
+
+    return catalog_response_toast(
+        "Settings.Download.Client",
+        "Download client updated",
+        "success",
+        download_client_host=download_client_config.get_host(session),
+        download_client_port=download_client_config.get_port(session),
+        download_client_rpc_secret=download_client_config.get_rpc_secret(session),
+        download_client_dir=download_client_config.get_dir(session),
+    )
+
+
+@router.post("/hx-download-client-test")
+async def test_download_client(
+    session: Annotated[Session, Depends(get_session)],
+    client_session: Annotated[ClientSession, Depends(get_connection)],
+    admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    _ = admin_user
+    try:
+        download_client_config.raise_if_invalid(session)
+    except DownloadClientMisconfigured as e:
+        return catalog_response_toast(
+            "Settings.Download.Client",
+            str(e),
+            "error",
+            download_client_host=download_client_config.get_host(session),
+            download_client_port=download_client_config.get_port(session),
+            download_client_rpc_secret=download_client_config.get_rpc_secret(session),
+            download_client_dir=download_client_config.get_dir(session),
+        )
+
+    client = Aria2Client(
+        host=download_client_config.get_host(session) or "",
+        port=download_client_config.get_port(session),
+        secret=download_client_config.get_rpc_secret(session),
+        client_session=client_session,
+    )
+    try:
+        ok = await client.test_connection()
+    except DownloadClientError as e:
+        return catalog_response_toast(
+            "Settings.Download.Client",
+            e.message,
+            "error",
+            download_client_host=download_client_config.get_host(session),
+            download_client_port=download_client_config.get_port(session),
+            download_client_rpc_secret=download_client_config.get_rpc_secret(session),
+            download_client_dir=download_client_config.get_dir(session),
+        )
+
+    if not ok:
+        return catalog_response_toast(
+            "Settings.Download.Client",
+            "aria2 connection failed",
+            "error",
+            download_client_host=download_client_config.get_host(session),
+            download_client_port=download_client_config.get_port(session),
+            download_client_rpc_secret=download_client_config.get_rpc_secret(session),
+            download_client_dir=download_client_config.get_dir(session),
+        )
+
+    return catalog_response_toast(
+        "Settings.Download.Client",
+        "aria2 connection successful",
+        "success",
+        download_client_host=download_client_config.get_host(session),
+        download_client_port=download_client_config.get_port(session),
+        download_client_rpc_secret=download_client_config.get_rpc_secret(session),
+        download_client_dir=download_client_config.get_dir(session),
     )

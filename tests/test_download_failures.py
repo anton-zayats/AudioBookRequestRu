@@ -11,14 +11,14 @@ from app.internal.models import (
     Notification,
     NotificationBodyTypeEnum,
 )
-from tests.constants import ASIN
+from tests.constants import BOOK_ID
 from tests.http import json_object
 from tests.mock_services import MockServer
 
 
 def _grab(admin_client: TestClient) -> Response:
     return admin_client.post(
-        f"/api/requests/{ASIN}/download",
+        f"/api/requests/{BOOK_ID}/download",
         json={"guid": "mock-guid-1", "indexer_id": 1},
     )
 
@@ -43,7 +43,7 @@ def test_issue_229_page_surfaces_indexer_error(
     prowlarr.state["grab_body"] = {"message": "Download blocked: VIP torrent"}
 
     response = admin_client.post(
-        f"/wishlist/sources/{ASIN}",
+        f"/wishlist/sources/{BOOK_ID}",
         data={"guid": "mock-guid-1", "indexer_id": "1"},
         headers={"HX-Request": "true"},
     )
@@ -57,7 +57,7 @@ def test_issue_220_magnet_redirect_does_not_fail_download(
     prowlarr.state["torrent_redirect"] = (
         "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
     )
-    response = admin_client.post(f"/api/requests/{ASIN}/auto-download")
+    response = admin_client.post(f"/api/requests/{BOOK_ID}/auto-download")
     assert response.status_code == 204
 
 
@@ -90,21 +90,20 @@ def test_api_auto_download_returns_json_error(
     prowlarr.state["grab_status"] = 409
     prowlarr.state["grab_body"] = {"message": "Download blocked: VIP torrent"}
 
-    response = admin_client.post(f"/api/requests/{ASIN}/auto-download")
+    response = admin_client.post(f"/api/requests/{BOOK_ID}/auto-download")
     assert response.status_code == 500
     assert response.headers["content-type"].startswith("application/json")
     assert json_object(response)["detail"] == "Download blocked: VIP torrent"
 
 
-def test_page_auto_download_redirects_to_prowlarr_settings(
+def test_page_auto_download_without_prowlarr_is_allowed(
     admin_client: TestClient,
 ) -> None:
+    # Prowlarr is now optional: direct-only users can auto-download without it.
     response = admin_client.post(
-        f"/wishlist/hx-auto-download/{ASIN}", headers={"HX-Request": "true"}
+        f"/wishlist/hx-auto-download/{BOOK_ID}", headers={"HX-Request": "true"}
     )
-    assert response.status_code == 400
-    assert response.headers["HX-Redirect"] == "/settings/prowlarr?prowlarr_misconfigured=1"
-    assert admin_client.get("/settings/prowlarr").status_code == 200
+    assert response.status_code == 200
 
 
 def test_page_auto_download_still_returns_toast(
@@ -114,7 +113,7 @@ def test_page_auto_download_still_returns_toast(
     prowlarr.state["grab_body"] = {"message": "Download blocked: VIP torrent"}
 
     response = admin_client.post(
-        f"/wishlist/hx-auto-download/{ASIN}", headers={"HX-Request": "true"}
+        f"/wishlist/hx-auto-download/{BOOK_ID}", headers={"HX-Request": "true"}
     )
     assert response.status_code < 500
     assert "toast(" in response.text

@@ -7,7 +7,12 @@ from aiohttp import ClientSession
 from pydantic import BaseModel, ValidationError
 from sqlmodel import Session
 
-from app.internal.models import Audiobook, ManualBookRequest, ProwlarrSource
+from app.internal.models import (
+    Audiobook,
+    DirectSource,
+    DownloadSource,
+    ManualBookRequest,
+)
 from app.internal.prowlarr.util import prowlarr_config
 from app.internal.ranking.quality import FileFormat
 from app.util.connection import USER_AGENT
@@ -73,15 +78,28 @@ audio_file_formats = [
 async def extract_qualities(
     session: Session,
     client_session: ClientSession,
-    source: ProwlarrSource,
+    source: DownloadSource,
     book: Audiobook | ManualBookRequest,
 ) -> list[Quality]:
+    if isinstance(book, ManualBookRequest):
+        return [Quality(kbits=0, file_format="unknown")]
+
+    if isinstance(source, DirectSource):
+        file_format = extract_direct_file_format(source)
+        book_seconds = book.runtime_length_min * 60
+        if book_seconds == 0:
+            return [Quality(kbits=0, file_format=file_format)]
+        return [
+            Quality(
+                kbits=8 * source.size / book_seconds / 1000,
+                file_format=file_format,
+            )
+        ]
+
     api_key = prowlarr_config.get_api_key(session)
     if not api_key:
         raise ValueError("Prowlarr API key not set")
 
-    if isinstance(book, ManualBookRequest):
-        return [Quality(kbits=0, file_format="unknown")]
     book_seconds = book.runtime_length_min * 60
     if book_seconds == 0:
         return []
@@ -122,6 +140,23 @@ async def extract_qualities(
     return [
         Quality(kbits=8 * source.size / book_seconds / 1000, file_format=file_format)
     ]
+
+
+def extract_direct_file_format(source: DirectSource) -> FileFormat:
+    """Derive the audio file format for a direct source.
+
+    Uses the explicit ``filetype`` (or book metadata filetype) first, then falls
+    back to inspecting the source title for the common mp3/m4b/flac markers.
+    """
+    raw = source.filetype or source.book_metadata.filetype or source.title
+    haystack = raw.lower()
+    if "flac" in haystack:
+        return "flac"
+    if "m4b" in haystack:
+        return "m4b"
+    if "mp3" in haystack:
+        return "mp3"
+    return "unknown"
 
 
 class _DecodedTorrent(BaseModel):

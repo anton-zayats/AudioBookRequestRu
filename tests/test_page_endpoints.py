@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -9,7 +10,8 @@ from app.internal.auth.config import auth_config
 from app.internal.auth.login_types import LoginTypeEnum
 from app.internal.models import APIKey
 from app.util.log import logger
-from tests.constants import ASIN, MANUAL_ID
+from tests.constants import BOOK_ID, MANUAL_ID
+from tests.fakes import fake_provider
 from tests.http import as_dict, json_list
 from tests.mock_services import MockServer
 
@@ -80,14 +82,11 @@ def test_oidc_invalid_page(admin_client: TestClient, db: Session) -> None:
     assert "boom" in response.text
 
 
-# -- recommendations page --------------------------------------------------
-def test_for_you_page(trusted_client: TestClient) -> None:
-    response = trusted_client.get("/recommendations/for-you")
-    assert response.status_code == 200, response.text
-
-
 # -- search / request ------------------------------------------------------
-def test_search_pages(admin_client: TestClient) -> None:
+def test_search_pages(
+    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.routers.api.search.get_provider", fake_provider)
     assert admin_client.get("/search").status_code == 200
     assert admin_client.get("/search?q=harry+potter&num_results=1").status_code == 200
     assert admin_client.get("/search/hx-suggestions?q=harry").status_code == 200
@@ -95,7 +94,7 @@ def test_search_pages(admin_client: TestClient) -> None:
 
 
 def test_add_request_page(admin_client: TestClient) -> None:
-    response = admin_client.post(f"/request/hx-add/{ASIN}", data={"region": "us"})
+    response = admin_client.post(f"/request/hx-add/{BOOK_ID}")
     assert response.status_code == 200, response.text
 
 
@@ -116,13 +115,13 @@ def test_wishlist_pages(admin_client: TestClient) -> None:
 
 def test_wishlist_source_pages(admin_client: TestClient, prowlarr: MockServer) -> None:
     assert prowlarr.base_url
-    response = admin_client.get(f"/wishlist/sources/{ASIN}")
+    response = admin_client.get(f"/wishlist/sources/{BOOK_ID}")
     assert response.status_code == 200, response.text
-    response = admin_client.get(f"/wishlist/sources/{ASIN}?only_body=1")
+    response = admin_client.get(f"/wishlist/sources/{BOOK_ID}?only_body=1")
     assert response.status_code == 200, response.text
 
     download = admin_client.post(
-        f"/wishlist/sources/{ASIN}",
+        f"/wishlist/sources/{BOOK_ID}",
         data={"guid": "mock-guid-1", "indexer_id": "1"},
     )
     assert download.status_code == 204, download.text
@@ -130,13 +129,13 @@ def test_wishlist_source_pages(admin_client: TestClient, prowlarr: MockServer) -
 
 def test_wishlist_actions(admin_client: TestClient, prowlarr: MockServer) -> None:
     assert prowlarr.base_url
-    auto = admin_client.post(f"/wishlist/hx-auto-download/{ASIN}")
+    auto = admin_client.post(f"/wishlist/hx-auto-download/{BOOK_ID}")
     assert auto.status_code == 200, auto.text
 
-    marked = admin_client.patch(f"/wishlist/downloaded/hx-add/{ASIN}")
+    marked = admin_client.patch(f"/wishlist/downloaded/hx-add/{BOOK_ID}")
     assert marked.status_code == 200, marked.text
 
-    deleted = admin_client.delete(f"/wishlist/hx-delete/{ASIN}")
+    deleted = admin_client.delete(f"/wishlist/hx-delete/{BOOK_ID}")
     assert deleted.status_code == 200, deleted.text
 
 

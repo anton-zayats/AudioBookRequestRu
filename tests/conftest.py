@@ -7,6 +7,7 @@ import tempfile
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -33,15 +34,12 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.internal import models
-from app.internal.audible.search import search_cache, search_suggestions_cache
-from app.internal.audible.similar import sims_cache
 from app.internal.audiobookshelf.config import abs_config
 from app.internal.auth.authentication import create_user
 from app.internal.auth.config import auth_config
 from app.internal.auth.login_types import LoginTypeEnum
 from app.internal.auth.oidc_config import oidc_config
-from app.internal.chaptarr.config import chaptarr_config
-from app.internal.download_backend import download_backend_config, set_download_backend
+from app.internal.downloads.config import download_client_config
 from app.internal.indexers.configuration import indexer_configuration_cache
 from app.internal.indexers.mam import MamIndexer
 from app.internal.models import (
@@ -57,7 +55,7 @@ from app.internal.prowlarr.util import (
 )
 from app.internal.ranking.quality import quality_config
 from app.util.db import engine
-from tests.constants import ASIN, DOWNLOADED_ASIN, MANUAL_ID
+from tests.constants import BOOK_ID, DOWNLOADED_BOOK_ID, MANUAL_ID
 
 # app.main performs DB work at import time, so the schema must exist first.
 models.BaseSQLModel.metadata.create_all(engine)
@@ -69,17 +67,13 @@ from tests import mock_services
 def _flush_caches() -> None:
     auth_config.flush()
     abs_config.flush()
-    chaptarr_config.flush()
-    download_backend_config.flush()
     oidc_config.flush()
     prowlarr_config.flush()
     quality_config.flush()
+    download_client_config.flush()
     indexer_configuration_cache.flush()
     prowlarr_source_cache.flush()
     prowlarr_indexer_cache.flush()
-    search_cache.clear()
-    search_suggestions_cache.clear()
-    sims_cache.clear()
     MamIndexer.results.clear()
 
 
@@ -92,7 +86,9 @@ def _seed() -> None:
 
         session.add(
             Audiobook(
-                asin=ASIN,
+                id=BOOK_ID,
+                source="livelib",
+                external_id="work-1",
                 title="Test Book",
                 subtitle=None,
                 authors=["Mock Author"],
@@ -105,7 +101,9 @@ def _seed() -> None:
         )
         session.add(
             Audiobook(
-                asin=DOWNLOADED_ASIN,
+                id=DOWNLOADED_BOOK_ID,
+                source="livelib",
+                external_id="work-2",
                 title="Downloaded Book",
                 subtitle=None,
                 authors=["Mock Author"],
@@ -128,8 +126,10 @@ def _seed() -> None:
         )
         session.commit()
 
-        session.add(AudiobookRequest(asin=ASIN, user_username="trusted"))
-        session.add(AudiobookRequest(asin=DOWNLOADED_ASIN, user_username="trusted"))
+        session.add(AudiobookRequest(book_id=BOOK_ID, user_username="trusted"))
+        session.add(
+            AudiobookRequest(book_id=DOWNLOADED_BOOK_ID, user_username="trusted")
+        )
         session.commit()
 
         auth_config.set_login_type(session, LoginTypeEnum.basic)
@@ -140,10 +140,10 @@ def _seed() -> None:
 def mock_server() -> Iterator[mock_services.MockServer]:
     server = mock_services.MockServer()
     mock_services.install_prowlarr(server)
-    mock_services.install_chaptarr(server)
     mock_services.install_notifications(server)
     mock_services.install_audiobookshelf(server)
     mock_services.install_oidc(server)
+    mock_services.install_aria2(server)
     server.start()
     yield server
     server.stop()
@@ -209,17 +209,6 @@ def prowlarr(
 
 
 @pytest.fixture
-def chaptarr(
-    mock_server: mock_services.MockServer,
-) -> Iterator[mock_services.MockServer]:
-    with Session(engine) as session:
-        chaptarr_config.set_base_url(session, f"{mock_server.base_url}/chaptarr")
-        chaptarr_config.set_api_key(session, "mock-api-key")
-        set_download_backend(session, "chaptarr")
-    yield mock_server
-
-
-@pytest.fixture
 def abs_service(
     mock_server: mock_services.MockServer,
 ) -> Iterator[mock_services.MockServer]:
@@ -251,4 +240,17 @@ def oidc_service(
         oidc_config.set(session, "oidc_scope", "openid profile")
         oidc_config.set(session, "oidc_username_claim", "preferred_username")
         oidc_config.set(session, "oidc_group_claim", "groups")
+    yield mock_server
+
+
+@pytest.fixture
+def aria2(
+    mock_server: mock_services.MockServer,
+) -> Iterator[mock_services.MockServer]:
+    parsed = urlparse(mock_server.base_url)
+    with Session(engine) as session:
+        download_client_config.set_host(session, parsed.hostname or "127.0.0.1")
+        download_client_config.set_port(session, parsed.port or 6800)
+        download_client_config.set_rpc_secret(session, "mock-secret")
+        download_client_config.set_dir(session, "/downloads")
     yield mock_server

@@ -19,7 +19,6 @@ class ABSBookMinified(BaseModel):
         authorName: str
         narratorName: str
         publishedDate: str | None = None
-        asin: str | None = None
 
     metadata: _Metadata
 

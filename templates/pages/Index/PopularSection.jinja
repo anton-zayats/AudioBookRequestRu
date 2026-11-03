@@ -1,7 +1,6 @@
 {#def
     title: str,
     user: DetailedUser,
-    region: audible_region_type,
     reasons: list | None = None,
     view_more: str | None = None,
     lazy_url: str | None = None,
@@ -50,7 +49,7 @@
                     <div class="flex gap-4 pb-4" style="width: max-content">
                         {% for reason in reasons[:12] %}
                             <div class="flex-none w-32 sm:w-40" title="{{ reason.reason }}">
-                                <BookCard book_with_requests={{ reason.book }} auto_start_download={{ auto_start_download }} region={{ region }} user={{ user }} />
+                                <BookCard book_with_requests={{ reason.book }} auto_start_download={{ auto_start_download }} user={{ user }} />
                             </div>
                         {% endfor %}
                     </div>

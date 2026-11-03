@@ -1,7 +1,6 @@
 {#def
     book_with_requests: AudiobookWithRequests,
     auto_start_download: bool,
-    region: audible_region_type,
     user: DetailedUser,
 #}
 
@@ -17,8 +16,8 @@
                  src="{{ book.cover_image }}"
                  alt="{{ book.title }}"
                  title="Click to enlarge"
-                 onclick="bookCoverModal{{ book.asin }}.showModal()" />
-            <dialog id="bookCoverModal{{ book.asin }}" class="modal book-cover-modal">
+                 onclick="bookCoverModal{{ book.id }}.showModal()" />
+            <dialog id="bookCoverModal{{ book.id }}" class="modal book-cover-modal">
                 <div class="modal-box">
                     <img src="{{ book.cover_image }}" alt="{{ book.title }}" />
                 </div>
@@ -30,19 +29,10 @@
             <icons.PhotoOff />
         {% endif %}
         <!-- Request Button -->
-        <button class="absolute top-0 right-0 rounded-none rounded-bl-md btn-sm btn btn-square items-center justify-center flex {% if book.downloaded or already_requested %}btn-ghost bg-success text-neutral/20{% else %}btn-info{% endif %}"
-                hx-post="{{ base_url }}/request/hx-add/{{ book.asin }}"
-                hx-vals='{"region": "{{ region }}"}'
-                hx-disabled-elt="this"
-                hx-target="closest .book-card"
-                hx-swap="outerHTML"
-                hx-on:click="this.disabled = true;"
-                {% if book.downloaded or already_requested %}disabled{% endif %}>
-            {% if book.downloaded or already_requested %}
-                <span>
-                    <icons.Checkmark />
-                </span>
-            {% else %}
+        {% if not book.downloaded and not already_requested %}
+            <a href="{{ base_url }}/request/{{ book.id }}/releases"
+               title="Request this book"
+               class="absolute top-0 right-0 rounded-none rounded-bl-md btn-sm btn btn-square items-center justify-center flex btn-info">
                 {% if auto_start_download and user.can_download() %}
                     <span>
                         <icons.Download />
@@ -52,15 +42,27 @@
                         <icons.Plus />
                     </span>
                 {% endif %}
-            {% endif %}
-        </button>
+            </a>
+        {% else %}
+            <button class="absolute top-0 right-0 rounded-none rounded-bl-md btn-sm btn btn-square items-center justify-center flex btn-ghost bg-success text-neutral/20"
+                    hx-post="{{ base_url }}/request/hx-add/{{ book.id }}"
+                    hx-disabled-elt="this"
+                    hx-target="closest .book-card"
+                    hx-swap="outerHTML"
+                    hx-on:click="this.disabled = true;"
+                    disabled>
+                <span>
+                    <icons.Checkmark />
+                </span>
+            </button>
+        {% endif %}
     </div>
     <!-- Book Info -->
-    {% if book.asin %}
+    {% if book.url %}
         <a class="text-sm text-primary font-bold pt-1 line-clamp-2"
            title="{{ book.title }}"
            target="_blank"
-           href="https://audible{{ audible_regions[region] }}/pd/{{ book.asin }}?ipRedirectOverride=true">
+           href="{{ book.url }}">
             {{ book.title }}
         </a>
     {% else %}

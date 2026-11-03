@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from aiohttp import ClientResponse, ClientSession, NonHttpUrlRedirectClientError
 from pydantic import BaseModel, TypeAdapter
-from sqlmodel import Session, select
+from sqlmodel import Session
 from torf import BdecodeError, MetainfoError, ReadError, Torrent
 
 from app.internal.indexers.abstract import SessionContainer
@@ -97,7 +97,7 @@ async def start_download(
     guid: str,
     indexer_id: int,
     prowlarr_source: ProwlarrSource | None = None,
-    asin_or_uuid: str | None = None,
+    book_ref: str | None = None,
 ) -> ClientResponse:
     prowlarr_config.raise_if_invalid(session)
     base_url = prowlarr_config.get_base_url(session)
@@ -109,11 +109,16 @@ async def start_download(
     headers = {"X-Api-Key": api_key, "User-Agent": USER_AGENT}
 
     manual_book_request: ManualBookRequest | None = None
+    book_id: int | None = None
     try:
-        uuid_obj = uuid.UUID(asin_or_uuid)
+        uuid_obj = uuid.UUID(book_ref)
         manual_book_request = session.get(ManualBookRequest, uuid_obj)
     except ValueError:
-        pass
+        if book_ref is not None:
+            try:
+                book_id = int(book_ref)
+            except ValueError:
+                book_id = None
 
     async with client_session.post(
         url,
@@ -154,7 +159,7 @@ async def start_download(
                 else:
                     await send_all_notifications(
                         EventEnum.on_failed_download,
-                        asin_or_uuid,
+                        book_id,
                         replacements,
                     )
             except Exception as e:
@@ -201,17 +206,16 @@ async def start_download(
                 additional_replacements,
             )
         else:
-            same_books = session.exec(
-                select(Audiobook).where(Audiobook.asin == asin_or_uuid)
-            ).all()
-            for b in same_books:
-                b.downloaded = True
-                session.add(b)
-            session.commit()
+            if book_id is not None:
+                book = session.get(Audiobook, book_id)
+                if book:
+                    book.downloaded = True
+                    session.add(book)
+                    session.commit()
 
             await send_all_notifications(
                 EventEnum.on_successful_download,
-                asin_or_uuid,
+                book_id,
                 additional_replacements,
             )
 

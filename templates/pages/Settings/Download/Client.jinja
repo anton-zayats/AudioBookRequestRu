@@ -1,0 +1,70 @@
+{#def
+    download_client_host: str | None,
+    download_client_port: int,
+    download_client_rpc_secret: str | None,
+    download_client_dir: str | None,
+#}
+
+<div class="flex flex-col gap-2">
+    <h2 class="text-lg">
+        Download client (aria2)
+    </h2>
+    <p class="text-xs opacity-60">
+        Direct downloads (e.g. knigavuhe) are handed off to an aria2 JSON-RPC server.
+        The base directory should be a volume that Audiobookshelf also watches.
+    </p>
+    <form class="flex flex-col gap-2"
+          hx-post="{{ base_url }}/settings/download/hx-download-client"
+          hx-disabled-elt="#download-client-save, #download-client-test">
+        <label for="download-client-host">
+            Host
+        </label>
+        <input id="download-client-host"
+               name="download_client_host"
+               type="text"
+               value="{{ download_client_host or '' }}"
+               placeholder="aria2"
+               class="input w-full"
+               minlength="1"
+               required />
+        <label for="download-client-port" class="pt-2">
+            Port
+        </label>
+        <input id="download-client-port"
+               name="download_client_port"
+               type="number"
+               value="{{ download_client_port }}"
+               class="input w-full"
+               required />
+        <label for="download-client-rpc-secret" class="pt-2">
+            RPC secret
+        </label>
+        <input id="download-client-rpc-secret"
+               name="download_client_rpc_secret"
+               type="password"
+               {% if download_client_rpc_secret %}placeholder="●●●●●●●●●●●●●●●●●"{% endif %}
+               class="input w-full" />
+        <label for="download-client-dir" class="pt-2">
+            Base download directory
+        </label>
+        <input id="download-client-dir"
+               name="download_client_dir"
+               type="text"
+               value="{{ download_client_dir or '' }}"
+               placeholder="/downloads"
+               class="input w-full"
+               minlength="1"
+               required />
+        <div class="flex gap-2 pt-2">
+            <button id="download-client-save" type="submit" class="btn btn-primary">
+                Save
+            </button>
+            <button id="download-client-test"
+                    type="button"
+                    class="btn"
+                    hx-post="{{ base_url }}/settings/download/hx-download-client-test">
+                Test connection
+            </button>
+        </div>
+    </form>
+</div>

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from typing import override
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.internal.recommendations.user_recommendations import UserSimsRecommendation
-from tests.constants import ASIN, DOWNLOADED_ASIN, MANUAL_ID
+from app.internal.metadata.base import MetadataProvider
+from app.internal.models import Audiobook
+from tests.constants import BOOK_ID, DOWNLOADED_BOOK_ID, MANUAL_ID
+from tests.fakes import FakeMetadataProvider, fake_provider
 from tests.http import as_dict, as_list, json_list, json_object
 from tests.mock_services import MockServer
 
@@ -264,7 +267,6 @@ def test_prowlarr_settings(admin_client: TestClient, prowlarr: MockServer) -> No
     got = admin_client.get("/api/settings/prowlarr")
     assert got.status_code == 200, got.text
     data = json_object(got)
-    assert data["download_backend"] == "prowlarr"
     assert isinstance(data["base_url"], str)
     assert data["base_url"].endswith("/prowlarr")
     indexers = as_dict(data["indexers"])
@@ -290,14 +292,8 @@ def test_prowlarr_settings(admin_client: TestClient, prowlarr: MockServer) -> No
         ).status_code
         == 204
     )
-    assert (
-        admin_client.put(
-            "/api/settings/prowlarr/backend", json={"backend": "chaptarr"}
-        ).status_code
-        == 204
-    )
     got = json_object(admin_client.get("/api/settings/prowlarr"))
-    assert got["download_backend"] == "chaptarr"
+    assert isinstance(got["base_url"], str)
 
 
 def test_prowlarr_unconfigured(admin_client: TestClient) -> None:
@@ -430,17 +426,14 @@ def test_requests_list(admin_client: TestClient, trusted_client: TestClient) -> 
 
 
 def test_create_request(admin_client: TestClient) -> None:
-    created = admin_client.post(f"/api/requests/{ASIN}")
+    created = admin_client.post(f"/api/requests/{BOOK_ID}")
     assert created.status_code == 200, created.text
-    assert as_dict(json_object(created)["book"])["asin"] == ASIN
+    assert as_dict(json_object(created)["book"])["id"] == BOOK_ID
 
-    duplicate = admin_client.post(f"/api/requests/{ASIN}")
+    duplicate = admin_client.post(f"/api/requests/{BOOK_ID}")
     assert duplicate.status_code == 409
 
-    invalid_region = admin_client.post(f"/api/requests/{ASIN}?region=zz")
-    assert invalid_region.status_code == 422
-
-    missing = admin_client.post("/api/requests/B00MISSING")
+    missing = admin_client.post("/api/requests/999")
     assert missing.status_code == 404
 
 
@@ -480,10 +473,10 @@ def test_manual_request_permissions(trusted_client: TestClient) -> None:
 
 def test_refresh_and_sources(admin_client: TestClient, prowlarr: MockServer) -> None:
     assert prowlarr.base_url
-    refreshed = admin_client.post(f"/api/requests/{ASIN}/refresh")
+    refreshed = admin_client.post(f"/api/requests/{BOOK_ID}/refresh")
     assert refreshed.status_code == 202, refreshed.text
 
-    sources = admin_client.get(f"/api/requests/{ASIN}/sources")
+    sources = admin_client.get(f"/api/requests/{BOOK_ID}/sources")
     assert sources.status_code == 200, sources.text
     body = json_object(sources)
     assert body["state"] == "ok"
@@ -491,7 +484,7 @@ def test_refresh_and_sources(admin_client: TestClient, prowlarr: MockServer) -> 
 
 
 def test_sources_unconfigured(admin_client: TestClient) -> None:
-    response = admin_client.get(f"/api/requests/{ASIN}/sources")
+    response = admin_client.get(f"/api/requests/{BOOK_ID}/sources")
     assert response.status_code == 400
 
 
@@ -506,7 +499,7 @@ def test_download(
 ) -> None:
     assert prowlarr.base_url
     response = admin_client.post(
-        f"/api/requests/{ASIN}/download",
+        f"/api/requests/{BOOK_ID}/download",
         json={"guid": "mock-guid-1", "indexer_id": 1},
     )
     assert response.status_code == 204, response.text
@@ -518,7 +511,7 @@ def test_auto_download(
     admin_client: TestClient, prowlarr: MockServer, mock_server: MockServer
 ) -> None:
     assert prowlarr.base_url
-    response = admin_client.post(f"/api/requests/{ASIN}/auto-download")
+    response = admin_client.post(f"/api/requests/{BOOK_ID}/auto-download")
     assert response.status_code == 204, response.text
     assert any(
         request["method"] == "POST"
@@ -527,40 +520,55 @@ def test_auto_download(
 
 
 def test_mark_downloaded(admin_client: TestClient, trusted_client: TestClient) -> None:
-    response = admin_client.patch(f"/api/requests/{ASIN}/downloaded")
+    response = admin_client.patch(f"/api/requests/{BOOK_ID}/downloaded")
     assert response.status_code == 204
     assert admin_client.patch("/api/requests/missing/downloaded").status_code == 404
     assert (
-        trusted_client.patch(f"/api/requests/{DOWNLOADED_ASIN}/downloaded").status_code
+        trusted_client.patch(
+            f"/api/requests/{DOWNLOADED_BOOK_ID}/downloaded"
+        ).status_code
         == 403
     )
 
 
 def test_delete_request(admin_client: TestClient, trusted_client: TestClient) -> None:
-    assert trusted_client.delete(f"/api/requests/{ASIN}").status_code == 204
-    assert admin_client.delete(f"/api/requests/{DOWNLOADED_ASIN}").status_code == 204
+    assert trusted_client.delete(f"/api/requests/{BOOK_ID}").status_code == 204
+    assert admin_client.delete(f"/api/requests/{DOWNLOADED_BOOK_ID}").status_code == 204
 
 
 # -- search ----------------------------------------------------------------
-def test_search(admin_client: TestClient) -> None:
-    assert json_list(admin_client.get("/api/search")) == []
-    assert admin_client.get("/api/search?q=doesnotexist&region=zz").status_code == 422
+def _category_provider(_session: object) -> MetadataProvider:
+    class _CategoryProvider(FakeMetadataProvider):
+        @override
+        async def categories(self) -> dict[str, list[Audiobook]]:
+            return {"детективы": await self.search("детектив", num_results=2)}
+
+    return _CategoryProvider()
+
+
+def test_search(admin_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.routers.api.search.get_provider", fake_provider)
+    results = admin_client.get("/api/search", params={})
+    assert results.status_code == 200, results.text
+    assert json_list(results) == []
 
     results = admin_client.get("/api/search?q=harry+potter&num_results=1")
     assert results.status_code == 200, results.text
-    assert json_list(results)
+    books = json_list(results)
+    assert len(books) == 1
+    book = as_dict(as_dict(books[0])["book"])
+    assert book["external_id"] == "work-fake-1"
+    assert book["title"] == "Fake harry potter"
+    assert book["id"] is not None
 
 
-def test_search_suggestions(admin_client: TestClient) -> None:
+def test_search_suggestions(
+    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.routers.api.search.get_provider", fake_provider)
     suggestions = admin_client.get("/api/search/suggestions?q=harry")
     assert suggestions.status_code == 200, suggestions.text
-    assert json_list(suggestions)
-
-
-def test_search_abs_marking(admin_client: TestClient, abs_service: MockServer) -> None:
-    results = admin_client.get("/api/search?q=harry+potter&num_results=1")
-    assert results.status_code == 200
-    assert abs_service.requests_to("/abs/api/libraries/lib-1/search")
+    assert json_list(suggestions) == ["Fake Suggestion"]
 
 
 # -- openapi ---------------------------------------------------------------
@@ -614,16 +622,11 @@ def test_openapi_spec(admin_client: TestClient) -> None:
 
     # Response codes match what the handlers return.
     assert "204" in as_dict(
-        _get(paths, "/api/requests/{asin_or_uuid}", "delete", "responses")
+        _get(paths, "/api/requests/{book_ref}", "delete", "responses")
     )
     assert "202" in as_dict(
-        _get(paths, "/api/requests/{asin_or_uuid}/refresh", "post", "responses")
+        _get(paths, "/api/requests/{book_ref}/refresh", "post", "responses")
     )
-
-    # Comma-separated seed ASINs are documented.
-    params = as_list(_get(paths, "/api/recommendations/user", "get", "parameters"))
-    seed = next(p for p in params if as_dict(p)["name"] == "seed_asins")
-    assert "comma-separated" in str(as_dict(seed)["description"])
 
 
 # -- recommendations -------------------------------------------------------
@@ -632,39 +635,23 @@ def test_recommendations_local(admin_client: TestClient) -> None:
     assert admin_client.get("/api/recommendations/recent").status_code == 200
 
 
-def test_recommendations_user(admin_client: TestClient) -> None:
-    response = admin_client.get("/api/recommendations/user")
-    assert response.status_code == 200, response.text
-    assert "recommendations" in json_object(response)
-
-
-def test_recommendations_user_seed_asins(
+def test_recommendations_categories(
     admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    captured: list[list[str] | None] = []
-
-    async def fake(
-        *, seed_asins: list[str] | None = None, **_: object
-    ) -> UserSimsRecommendation:
-        captured.append(seed_asins)
-        return UserSimsRecommendation(recommendations=[], total=0)
-
     monkeypatch.setattr(
-        "app.routers.api.recommendations.get_user_sims_recommendations", fake
+        "app.routers.api.recommendations.get_provider", _category_provider
     )
-
-    comma = admin_client.get("/api/recommendations/user?seed_asins=A,B")
-    assert comma.status_code == 200, comma.text
-    repeated = admin_client.get("/api/recommendations/user?seed_asins=A&seed_asins=B")
-    assert repeated.status_code == 200, repeated.text
-    assert captured == [["A", "B"], ["A", "B"]]
-
-
-def test_recommendations_fallback(admin_client: TestClient) -> None:
-    response = admin_client.get("/api/recommendations/fallback?limit=1")
-    assert response.status_code == 200, response.text
-
-
-def test_recommendations_categories(admin_client: TestClient) -> None:
     response = admin_client.get("/api/recommendations/categories")
     assert response.status_code == 200, response.text
+    body = json_object(response)
+    assert "детективы" in body
+    assert len(as_list(body["детективы"])) == 1
+
+
+def test_recommendations_fallback(
+    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.routers.api.recommendations.get_provider", fake_provider)
+    response = admin_client.get("/api/recommendations/fallback")
+    assert response.status_code == 200, response.text
+    assert len(json_list(response)) >= 1

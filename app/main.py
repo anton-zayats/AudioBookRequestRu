@@ -11,7 +11,6 @@ from sqlalchemy import func
 from sqlmodel import select
 from starlette.responses import Content
 
-from app.internal.audible.search import clear_old_book_caches
 from app.internal.auth.authentication import RequiresLoginException
 from app.internal.auth.config import auth_config, initialize_force_login_type
 from app.internal.auth.oidc_config import InvalidOIDCConfiguration
@@ -36,7 +35,6 @@ fetch_scripts(Settings().app.debug)
 with next(get_session()) as session:
     auth_secret = auth_config.get_auth_secret(session)
     initialize_force_login_type(session)
-    clear_old_book_caches(session)
 
 
 app = FastAPI(
