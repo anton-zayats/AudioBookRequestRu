@@ -180,7 +180,7 @@ source filter (`tracker | direct | both`). Livelib is **not** in this path.
 **Acceptance met:** 113 tests pass (`tests/test_selected_release.py`); ruff/basedpyright clean; migration `b3a1c2d4e5f6` applies; `selected_release` column present.
 
 ### Phase 7 — Release-centric core + search simplification (P12, NEXT)
-- [ ] **Search → releases**: `GET /api/search` queries Prowlarr + direct sources directly (no livelib), returns a **flat, paginated** ranked release list with a source filter (`tracker | direct | both`); the search page renders release rows, not book cards.
+- [x] **Search → releases**: `GET /api/search` queries Prowlarr + direct sources directly (no livelib), returns a **flat, paginated** ranked release list with a source filter (`tracker | direct | both`); the search page renders release rows (API filter/pagination done; UI filter controls in step 3).
 - [ ] `Release` entity + `ReleaseRequest` as a **bookmark** (no status workflow): `(release_id, user)`; download status lives in `DownloadJob` (P9). Migrate off `Audiobook.downloaded` + single `selected_release`.
 - [ ] Two search actions per release: **Send to download** (immediate) and **Add to requests** (download later).
 - [ ] Requests list: shows **in-library state automatically on load** (ABS narrator check every render); per-release actions: **download**, **remove**, **refresh** (re-fetch that source's page/guid).

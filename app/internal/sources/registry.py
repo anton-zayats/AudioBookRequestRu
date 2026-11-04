@@ -4,7 +4,7 @@ from aiohttp import ClientSession
 from sqlmodel import Session
 
 from app.internal.indexers.abstract import SessionContainer
-from app.internal.models import Audiobook, DirectSource, ManualBookRequest
+from app.internal.models import DirectSource, RankReference
 from app.internal.sources.base import DirectSourceProvider
 from app.internal.sources.knigavuhe import KnigavuheProvider
 from app.util.log import logger
@@ -15,7 +15,7 @@ direct_source_providers: list[DirectSourceProvider] = [KnigavuheProvider()]
 async def search_direct_sources(
     session: Session,
     client_session: ClientSession,
-    book: Audiobook | ManualBookRequest,
+    book: RankReference,
 ) -> list[DirectSource]:
     """Search every enabled direct-source provider for a book.
 

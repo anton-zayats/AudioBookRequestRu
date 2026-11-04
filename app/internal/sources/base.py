@@ -13,7 +13,7 @@ from app.internal.indexers.configuration import (
     Configurations,
     indexer_configuration_cache,
 )
-from app.internal.models import Audiobook, DirectSource, ManualBookRequest
+from app.internal.models import DirectSource, RankReference
 
 
 class DirectSourceProvider(ABC):
@@ -49,7 +49,7 @@ class DirectSourceProvider(ABC):
     @abstractmethod
     async def search(
         self,
-        book: Audiobook | ManualBookRequest,
+        book: RankReference,
         container: SessionContainer,
     ) -> list[DirectSource]:
-        """Search for direct download sources for the given book."""
+        """Search for direct download sources for the given book/query."""

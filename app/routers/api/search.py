@@ -4,18 +4,17 @@ from aiohttp import ClientSession
 from fastapi import APIRouter, Depends, Query, Security
 from sqlmodel import Session
 
-from app.internal.audiobookshelf.client import abs_mark_downloaded_flags
 from app.internal.auth.authentication import AnyAuth, DetailedUser
-from app.internal.db_queries import upsert_audiobooks
 from app.internal.metadata.registry import get_provider
-from app.internal.models import AudiobookWithRequests
+from app.internal.models import DownloadSource, SearchHistory
+from app.internal.search import SourceFilter, search_releases
 from app.util.connection import get_connection
 from app.util.db import get_session
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
 
-@router.get("", response_model=list[AudiobookWithRequests])
+@router.get("", response_model=list[DownloadSource])
 async def search_books(
     session: Annotated[Session, Depends(get_session)],
     user: Annotated[DetailedUser, Security(AnyAuth())],
@@ -24,22 +23,33 @@ async def search_books(
         str | None,
         Query(alias="q", description="Search term (title, author, narrator)."),
     ] = None,
+    source: Annotated[
+        SourceFilter, Query(description="Filter releases by source.")
+    ] = "both",
     num_results: Annotated[int, Query(description="Number of results to return.")] = 20,
     page: Annotated[int, Query(description="Page number, starting at 0.")] = 0,
-) -> list[AudiobookWithRequests]:
+) -> list[DownloadSource]:
     if not query or not query.strip():
         return []
 
-    provider = get_provider(session)
-    books = await provider.search(query=query, num_results=num_results, page=page)
-    merged = upsert_audiobooks(session, books)
-    session.commit()
-    await abs_mark_downloaded_flags(session, client_session, merged)
+    releases = await search_releases(
+        session=session,
+        client_session=client_session,
+        query=query.strip(),
+        source=source,
+    )
 
-    return [
-        AudiobookWithRequests(book=book, requests=book.requests, username=user.username)
-        for book in merged
-    ]
+    session.add(
+        SearchHistory(
+            user_username=user.username,
+            query=query.strip(),
+            result_count=len(releases),
+        )
+    )
+    session.commit()
+
+    start = page * num_results
+    return releases[start : start + num_results]
 
 
 @router.get("/suggestions", response_model=list[str])

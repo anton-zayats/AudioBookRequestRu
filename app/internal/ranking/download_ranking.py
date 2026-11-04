@@ -9,9 +9,8 @@ from rapidfuzz import fuzz
 from sqlmodel import Session
 
 from app.internal.models import (
-    Audiobook,
     DownloadSource,
-    ManualBookRequest,
+    RankReference,
     TorrentSource,
 )
 from app.internal.ranking.quality import quality_config
@@ -29,7 +28,7 @@ async def rank_sources(
     session: Session,
     client_session: ClientSession,
     sources: list[DownloadSource],
-    book: Audiobook | ManualBookRequest,
+    book: RankReference,
     is_manual: bool = False,
 ) -> list[DownloadSource]:
     async def get_qualities(source: DownloadSource):
@@ -50,7 +49,7 @@ class CompareSource:
     def __init__(
         self,
         session: Session,
-        book: Audiobook | ManualBookRequest,
+        book: RankReference,
         is_manual: bool = False,
     ):
         self.session = session

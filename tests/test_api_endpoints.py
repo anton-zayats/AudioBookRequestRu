@@ -15,7 +15,7 @@ from sqlmodel import Session
 from app.internal.metadata.base import MetadataProvider
 from app.internal.models import Audiobook
 from tests.constants import BOOK_ID, DOWNLOADED_BOOK_ID, MANUAL_ID
-from tests.fakes import FakeMetadataProvider, fake_provider
+from tests.fakes import FakeMetadataProvider, fake_provider, fake_search_releases
 from tests.http import as_dict, as_list, json_list, json_object
 from tests.mock_services import MockServer
 
@@ -593,19 +593,21 @@ def _category_provider(_session: object) -> MetadataProvider:
 
 
 def test_search(admin_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.routers.api.search.get_provider", fake_provider)
+    monkeypatch.setattr("app.routers.api.search.search_releases", fake_search_releases)
+
     results = admin_client.get("/api/search", params={})
     assert results.status_code == 200, results.text
     assert json_list(results) == []
 
     results = admin_client.get("/api/search?q=harry+potter&num_results=1")
     assert results.status_code == 200, results.text
-    books = json_list(results)
-    assert len(books) == 1
-    book = as_dict(as_dict(books[0])["book"])
-    assert book["external_id"] == "work-fake-1"
-    assert book["title"] == "Fake harry potter"
-    assert book["id"] is not None
+    releases = json_list(results)
+    assert len(releases) == 1
+    release = as_dict(releases[0])
+    assert release["guid"] == "torrent:1"
+    assert release["protocol"] == "torrent"
+    assert release["title"] == "Fake harry potter mp3"
+    assert as_dict(release["book_metadata"])["narrators"] == ["Narrator A"]
 
 
 def test_search_suggestions(

@@ -11,7 +11,7 @@ from app.internal.auth.login_types import LoginTypeEnum
 from app.internal.models import APIKey
 from app.util.log import logger
 from tests.constants import BOOK_ID, MANUAL_ID
-from tests.fakes import fake_provider
+from tests.fakes import fake_provider, fake_search_releases
 from tests.http import as_dict, json_list
 from tests.mock_services import MockServer
 
@@ -87,6 +87,7 @@ def test_search_pages(
     admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("app.routers.api.search.get_provider", fake_provider)
+    monkeypatch.setattr("app.routers.api.search.search_releases", fake_search_releases)
     assert admin_client.get("/search").status_code == 200
     assert admin_client.get("/search?q=harry+potter&num_results=1").status_code == 200
     assert admin_client.get("/search/hx-suggestions?q=harry").status_code == 200

@@ -8,6 +8,7 @@ from app.internal.auth.authentication import ABRAuth, DetailedUser
 from app.internal.models import GroupEnum
 from app.internal.prowlarr.util import prowlarr_config
 from app.internal.ranking.quality import quality_config
+from app.internal.search import SourceFilter
 from app.routers.api.search import search_books
 from app.routers.api.search import search_suggestions as api_search_suggestions
 from app.util.connection import get_connection
@@ -29,6 +30,7 @@ async def read_search(
     user: Annotated[DetailedUser, Security(ABRAuth())],
     client_session: Annotated[ClientSession, Depends(get_connection)],
     query: Annotated[str | None, Query(alias="q")] = None,
+    source: Annotated[SourceFilter, Query()] = "both",
     num_results: int = 20,
     page: int = 0,
 ):
@@ -38,6 +40,7 @@ async def read_search(
             user=user,
             client_session=client_session,
             query=query,
+            source=source,
             num_results=num_results,
             page=page,
         )
@@ -50,6 +53,7 @@ async def read_search(
             search_term=query or "",
             search_results=results,
             page=page,
+            source=source,
             auto_start_download=quality_config.get_auto_download(session)
             and user.is_above(GroupEnum.trusted),
             prowlarr_configured=prowlarr_configured,

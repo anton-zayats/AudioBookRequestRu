@@ -8,10 +8,10 @@ from pydantic import BaseModel, ValidationError
 from sqlmodel import Session
 
 from app.internal.models import (
-    Audiobook,
     DirectSource,
     DownloadSource,
     ManualBookRequest,
+    RankReference,
 )
 from app.internal.prowlarr.util import prowlarr_config
 from app.internal.ranking.quality import FileFormat
@@ -79,7 +79,7 @@ async def extract_qualities(
     session: Session,
     client_session: ClientSession,
     source: DownloadSource,
-    book: Audiobook | ManualBookRequest,
+    book: RankReference,
 ) -> list[Quality]:
     if isinstance(book, ManualBookRequest):
         return [Quality(kbits=0, file_format="unknown")]

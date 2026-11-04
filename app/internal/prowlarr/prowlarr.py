@@ -19,6 +19,7 @@ from app.internal.models import (
     Indexer,
     ManualBookRequest,
     ProwlarrSource,
+    RankReference,
     TorrentSource,
     UsenetSource,
 )
@@ -254,7 +255,7 @@ _ProwlarrSearchResult = TypeAdapter(
 async def query_prowlarr(
     session: Session,
     client_session: ClientSession,
-    book: Audiobook | ManualBookRequest,
+    book: RankReference,
     indexer_ids: list[int] | None = None,
     force_refresh: bool = False,
     only_return_if_cached: bool = False,
@@ -381,9 +382,11 @@ async def query_prowlarr(
         except KeyError as e:
             logger.error("Failed to parse source", source=result, keyerror=str(e))
 
-    # add additional metadata using any available indexers
-    container = SessionContainer(session=session, client_session=client_session)
-    await edit_source_metadata(book, sources, container)
+    # add additional metadata using any available indexers (book entities only;
+    # raw search queries have no enrichment source)
+    if isinstance(book, (Audiobook, ManualBookRequest)):
+        container = SessionContainer(session=session, client_session=client_session)
+        await edit_source_metadata(book, sources, container)
 
     prowlarr_source_cache.set(sources, query)
 

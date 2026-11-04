@@ -266,6 +266,23 @@ class ManualBookRequest(BaseSQLModel, table=True):
     )
 
 
+class SearchRef(BaseModel):
+    """A lightweight ranking reference for a raw search query.
+
+    Satisfies the same shape the ranking/prowlarr/sources code reads off a book
+    (title/authors/narrators/subtitle/runtime) without being a persisted row.
+    """
+
+    title: str
+    authors: list[str] = PydanticField(default_factory=list)
+    narrators: list[str] = PydanticField(default_factory=list)
+    subtitle: str | None = None
+    runtime_length_min: int = 0
+
+
+RankReference = Audiobook | ManualBookRequest | SearchRef
+
+
 class BookMetadata(BaseSQLModel):
     """extra metadata that can be added to sources to better rank them"""
 

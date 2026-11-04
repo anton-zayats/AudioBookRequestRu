@@ -28,10 +28,9 @@ from app.internal.indexers.configuration import (
     indexer_configuration_cache,
 )
 from app.internal.models import (
-    Audiobook,
     BookMetadata,
     DirectSource,
-    ManualBookRequest,
+    RankReference,
 )
 from app.internal.sources.base import DirectSourceProvider
 from app.util.connection import USER_AGENT
@@ -274,7 +273,7 @@ class KnigavuheProvider(DirectSourceProvider):
     @override
     async def search(
         self,
-        book: Audiobook | ManualBookRequest,
+        book: RankReference,
         container: SessionContainer,
     ) -> list[DirectSource]:
         configurations = self.get_configurations(container)
