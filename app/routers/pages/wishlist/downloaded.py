@@ -9,6 +9,7 @@ from app.internal.auth.authentication import ABRAuth, DetailedUser
 from app.internal.db_queries import get_wishlist_counts, get_wishlist_results
 from app.internal.models import GroupEnum
 from app.routers.api.requests import mark_downloaded as api_mark_downloaded
+from app.routers.api.requests import unmark_downloaded as api_unmark_downloaded
 from app.util.db import get_session
 from app.util.templates import catalog_response
 
@@ -53,6 +54,29 @@ async def update_downloaded(
         user=admin_user,
         results=results,
         page="wishlist",
+        counts=counts,
+        show_sources=True,
+        update_tablist=True,
+    )
+
+
+@router.delete("/hx-unmark/{book_id}")
+async def unmark_downloaded(
+    book_id: str,
+    session: Annotated[Session, Depends(get_session)],
+    admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    await api_unmark_downloaded(book_id, session, admin_user)
+
+    username = None if admin_user.is_admin() else admin_user.username
+    results = get_wishlist_results(session, username, "downloaded")
+    counts = get_wishlist_counts(session, admin_user)
+
+    return catalog_response(
+        "Wishlist.Wishlist",
+        user=admin_user,
+        results=results,
+        page="downloaded",
         counts=counts,
         show_sources=True,
         update_tablist=True,

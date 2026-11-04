@@ -228,6 +228,22 @@ async def mark_downloaded(
     raise HTTPException(status_code=404, detail="Book not found")
 
 
+@router.delete("/{book_ref}/downloaded", status_code=204)
+async def unmark_downloaded(
+    book_ref: str,
+    session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.admin))],
+):
+    book_id = _audiobook_id(book_ref)
+    book = session.get(Audiobook, book_id)
+    if book:
+        book.downloaded = False
+        session.add(book)
+        session.commit()
+        return Response(status_code=204)
+    raise HTTPException(status_code=404, detail="Book not found")
+
+
 @router.patch("/{book_ref}/release", status_code=204)
 async def set_release(
     book_ref: str,

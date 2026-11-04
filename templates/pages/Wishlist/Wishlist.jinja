@@ -173,10 +173,13 @@
                                     <icons.Ban />
                                 </button>
                                 {% if book.downloaded %}
-                                    <button class="btn btn-square btn-ghost bg-success text-neutral/20"
-                                            disabled
-                                            title="Set as downloaded">
-                                        <icons.Checkmark />
+                                    <button class="btn btn-square"
+                                            title="Mark as not downloaded"
+                                            {% if user.is_admin() %}hx-delete="{{ base_url }}/wishlist/downloaded/hx-unmark/{{ book.id }}"{% else %}disabled{% endif %}
+                                            hx-swap="outerHTML"
+                                            hx-target="#book-table-body"
+                                            hx-disabled-elt="this">
+                                        <icons.XMark />
                                     </button>
                                 {% else %}
                                     <button class="btn btn-square"
