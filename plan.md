@@ -248,6 +248,8 @@ Test results table (fill as phases complete):
 | P7 | Decypharr torrent download client (Path A) — deferred | 5 | — | `[ ]` | deferred: Path B chosen (2026-11-03) |
 | P8 | Persist release search results so a user can revisit/request another release | follow-up | — | `[ ]` | — |
 | P9 | Track download completion (aria2/Decypharr) before marking `downloaded` | follow-up | — | `[ ]` | currently marked on submit/enqueue |
+| P10 | Split multi-novel livelib titles (e.g. "Господа Головлевы. Сказки") into separate searches | follow-up | — | `[ ]` | combined editions have no audiobook |
+| P11 | Sync `downloaded` with ABS (unmark books ABS doesn't actually have) | follow-up | — | `[ ]` | — |
 | —  | (future phases, as needed) | —   | — | — | — |
 
 ---
