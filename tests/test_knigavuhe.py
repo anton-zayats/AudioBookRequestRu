@@ -25,6 +25,7 @@ from app.internal.sources.knigavuhe import (
     extract_playlist,
     item_urls,
     parse_search_cards,
+    split_playlist_urls,
 )
 from tests.constants import BOOK_ID
 
@@ -162,3 +163,33 @@ def test_search_direct_sources_skips_disabled(
     sources = asyncio.run(run())
     assert sources == []
     assert provider.called is False
+
+
+def _item(url: str) -> dict[str, object]:
+    return {"url": url}
+
+
+def test_split_playlist_urls_marks_litres_trial_as_sample() -> None:
+    trial_items = [_item("https://www.litres.ru/audiotrial/?art=6713197")]
+    audio, trial = split_playlist_urls(trial_items)
+    assert audio == []
+    assert trial is True
+
+    full_items = [
+        _item("https://s9.knigavuhe.org/1/audio/42021/abc/01-01.mp3"),
+        _item("https://s9.knigavuhe.org/1/audio/42021/def/01-02.mp3"),
+    ]
+    audio, trial = split_playlist_urls(full_items)
+    assert trial is False
+    assert audio == [
+        "https://s9.knigavuhe.org/1/audio/42021/abc/01-01.mp3",
+        "https://s9.knigavuhe.org/1/audio/42021/def/01-02.mp3",
+    ]
+
+    mixed = [
+        _item("https://s9.knigavuhe.org/1/audio/42021/abc/01-01.mp3"),
+        _item("https://www.litres.ru/audiotrial/?art=1"),
+    ]
+    audio, trial = split_playlist_urls(mixed)
+    assert trial is True
+    assert audio == ["https://s9.knigavuhe.org/1/audio/42021/abc/01-01.mp3"]

@@ -156,36 +156,43 @@ async def query_sources(
         # start download if requested
         if start_auto_download and not book.downloaded and len(ranked) > 0:
             target = _selected_source(ranked, selected_release)
-            try:
-                if isinstance(target, DirectSource):
-                    await start_direct_download(
-                        session=session,
-                        client_session=client_session,
-                        book=book,
-                        source=target,
-                    )
-                else:
-                    await start_download(
-                        session=session,
-                        client_session=client_session,
-                        guid=target.guid,
-                        indexer_id=target.indexer_id,
-                        book_ref=book_ref,
-                        prowlarr_source=target,
-                    )
-            except DownloadFailed as e:
-                raise HTTPException(status_code=500, detail=e.message) from e
-            except DirectDownloadFailed as e:
-                raise HTTPException(status_code=500, detail=e.message) from e
-            except DownloadClientMisconfigured as e:
-                raise HTTPException(status_code=500, detail=str(e)) from e
+            if "sample" in target.indexer_flags:
+                logger.info(
+                    "Skipping sample-only release for auto-download",
+                    guid=target.guid,
+                    title=target.title,
+                )
+            else:
+                try:
+                    if isinstance(target, DirectSource):
+                        await start_direct_download(
+                            session=session,
+                            client_session=client_session,
+                            book=book,
+                            source=target,
+                        )
+                    else:
+                        await start_download(
+                            session=session,
+                            client_session=client_session,
+                            guid=target.guid,
+                            indexer_id=target.indexer_id,
+                            book_ref=book_ref,
+                            prowlarr_source=target,
+                        )
+                except DownloadFailed as e:
+                    raise HTTPException(status_code=500, detail=e.message) from e
+                except DirectDownloadFailed as e:
+                    raise HTTPException(status_code=500, detail=e.message) from e
+                except DownloadClientMisconfigured as e:
+                    raise HTTPException(status_code=500, detail=str(e)) from e
 
-            # Try to trigger an ABS scan to pick up new media
-            try:
-                if abs_config.is_valid(session):
-                    await abs_trigger_scan(session, client_session)
-            except Exception:
-                logger.error("Failed to trigger ABS scan after starting download")
+                # Try to trigger an ABS scan to pick up new media
+                try:
+                    if abs_config.is_valid(session):
+                        await abs_trigger_scan(session, client_session)
+                except Exception:
+                    logger.error("Failed to trigger ABS scan after starting download")
 
         return QueryResult(
             sources=ranked,

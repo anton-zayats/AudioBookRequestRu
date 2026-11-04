@@ -182,8 +182,16 @@ class CompareSource:
 
         # Check if the source has a reasonable match with the book
         # Require either title match OR (author/narrator match)
-        a_valid = a_valid and self._has_minimum_match(a)
-        b_valid = b_valid and self._has_minimum_match(b)
+        a_valid = (
+            a_valid
+            and self._has_minimum_match(a)
+            and "sample" not in a.source.indexer_flags
+        )
+        b_valid = (
+            b_valid
+            and self._has_minimum_match(b)
+            and "sample" not in b.source.indexer_flags
+        )
 
         if a_valid == b_valid:
             return self._get_next_compare(next_compare)(a, b, next_compare + 1)

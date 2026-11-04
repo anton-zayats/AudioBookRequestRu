@@ -246,6 +246,8 @@ Test results table (fill as phases complete):
 | P5 | Phase 5 — hardening & docs | 5 | delegated (requestId `3174177b-2444-49ec-94b8-d0ac56705ad2`) | `[x]` | verified: 113 tests / ruff / compose OK; README + `.env.example` + compose finalized |
 | T5.1 | Decypharr torrent download-client investigation | 5 | delegated (requestId `47d1fe94-3814-48f6-a4e2-a4596623350c`) | `[x]` | `spikes/T5.1-decypharr-torrent.md` (Path B interim, Path A preferred) |
 | P7 | Decypharr torrent download client (Path A) — deferred | 5 | — | `[ ]` | deferred: Path B chosen (2026-11-03) |
+| P8 | Persist release search results so a user can revisit/request another release | follow-up | — | `[ ]` | — |
+| P9 | Track download completion (aria2/Decypharr) before marking `downloaded` | follow-up | — | `[ ]` | currently marked on submit/enqueue |
 | —  | (future phases, as needed) | —   | — | — | — |
 
 ---

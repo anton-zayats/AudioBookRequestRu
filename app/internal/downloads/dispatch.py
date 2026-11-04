@@ -58,6 +58,9 @@ async def start_direct_download(
     """Enqueue a direct source's files with the configured download client."""
     download_client_config.raise_if_invalid(session)
 
+    if not source.download_urls:
+        raise DirectDownloadFailed("No downloadable files (sample-only release)")
+
     authors = ", ".join(book.authors) if book.authors else "Unknown Author"
     target_dir = posixpath.join(
         download_client_config.get_dir(session) or "",

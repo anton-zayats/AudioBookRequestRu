@@ -187,15 +187,48 @@ def item_urls(items: list[dict[str, object]]) -> list[str]:
     return urls
 
 
+def _is_trial_url(url: str) -> bool:
+    return "litres.ru" in url or "audiotrial" in url
+
+
+def _is_knigavuhe_audio(url: str) -> bool:
+    return "knigavuhe.org" in url and "/1/audio/" in url
+
+
+def split_playlist_urls(items: list[dict[str, object]]) -> tuple[list[str], bool]:
+    """Split playlist items into real audio URLs and a trial/sample flag.
+
+    Sample-only books link to a Litres trial (or another external player) rather
+    than knigavuhe's own audio CDN. Those links are not downloadable and should
+    be surfaced as "Sample only" rather than downloaded.
+    """
+    audio: list[str] = []
+    trial = False
+    for item in items:
+        url = item.get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        if _is_trial_url(url):
+            trial = True
+        elif _is_knigavuhe_audio(url):
+            audio.append(url)
+        else:
+            trial = True
+    return audio, trial
+
+
 def build_source(
     card: KnigavuheBook,
     book_url: str,
     urls: list[str],
+    sample_only: bool = False,
 ) -> DirectSource:
     """Build a :class:`DirectSource` from a search card and its audio URLs."""
     readers = [reader for reader in card.readers if reader]
     title = card.title or "Unknown"
     display_title = f"{title} — {', '.join(readers)}" if readers else title
+    if sample_only:
+        display_title += " (Sample only)"
 
     return DirectSource(
         guid=book_url,
@@ -205,7 +238,7 @@ def build_source(
         size=0,
         publish_date=_PLACEHOLDER_DATE,
         info_url=book_url,
-        indexer_flags=[],
+        indexer_flags=["sample"] if sample_only else [],
         protocol="direct",
         download_urls=urls,
         filetype="mp3",
@@ -305,12 +338,15 @@ class KnigavuheProvider(DirectSourceProvider):
                     page_html = await response.text()
 
                 _, items = extract_playlist(page_html)
-                urls = item_urls(items)
-                if not urls:
+                audio_urls, has_trial = split_playlist_urls(items)
+                sample_only = has_trial and not audio_urls
+                if not audio_urls and not sample_only:
                     logger.warning("knigavuhe book has no playlist", slug=card.slug)
                     continue
 
-                sources.append(build_source(card, book_url, urls))
+                sources.append(
+                    build_source(card, book_url, audio_urls, sample_only=sample_only)
+                )
             except Exception as exc:
                 logger.error(
                     "knigavuhe candidate failed",

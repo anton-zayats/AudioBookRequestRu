@@ -111,7 +111,11 @@
                                 {{ source.protocol }}
                             </td>
                             <td>
-                                {{ source.indexer_flags | join(", ") }}
+                                {% if "sample" in source.indexer_flags %}
+                                    <span class="badge badge-warning">Sample only</span>
+                                {% else %}
+                                    {{ source.indexer_flags | join(", ") }}
+                                {% endif %}
                             </td>
                             {% if source.protocol == "torrent" %}
                                 <td>
@@ -137,7 +141,7 @@
                                     <input type="hidden" name="guid" value="{{ source.guid }}" />
                                     <input type="hidden" name="title" value="{{ source.title }}" />
                                     <input type="hidden" name="narrators" value="{{ source.book_metadata.narrators | join(',') }}" />
-                                    <button type="submit" class="btn btn-primary btn-sm">
+                                    <button type="submit" class="btn btn-primary btn-sm" {% if "sample" in source.indexer_flags %}disabled{% endif %}>
                                         Request this release
                                     </button>
                                 </form>

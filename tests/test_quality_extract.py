@@ -9,7 +9,9 @@ from app.internal.ranking.quality_extract import extract_qualities
 from tests.mock_services import MockServer
 
 
-def test_torrent_quality_survives_zero_runtime(prowlarr: MockServer, db: Session) -> None:
+def test_torrent_quality_survives_zero_runtime(
+    prowlarr: MockServer, db: Session
+) -> None:
     """livelib books have no runtime; torrent/usenet sources must not be dropped."""
     _ = prowlarr
     book = Audiobook(
