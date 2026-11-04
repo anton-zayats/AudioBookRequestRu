@@ -58,6 +58,7 @@
                 <tbody>
                     {% for result in results %}
                         {% set book = result.book %}
+                        {% set selected = result.selected_release %}
                         <tr class="text-xs lg:text-sm" id="{{ book.id }}">
                             <th>
                                 {{ loop.index }}
@@ -102,7 +103,12 @@
                                 {{ book.authors|join(", ") }}
                             </td>
                             <td>
-                                {{ book.narrators|join(", ") }}
+                                {% if selected and selected.narrators %}
+                                    {{ selected.narrators|join(", ") }}
+                                    <span class="badge badge-sm badge-primary ml-1">selected</span>
+                                {% else %}
+                                    {{ book.narrators|join(", ") }}
+                                {% endif %}
                             </td>
                             <td class="hidden lg:table-cell">
                                 {{ book.release_date.strftime("%B %Y") }}
@@ -149,14 +155,14 @@
                             <td class="grid grid-cols-2 min-w-32 gap-1 w-fit ml-auto">
                                 {% if show_sources %}
                                     <a preload
-                                       title="Torrent Sources"
+                                       title="Sources"
                                        href="{{ base_url }}/wishlist/sources/{{ book.id }}"
                                        {% if not user.is_admin() %}disabled{% endif %}
                                        class="btn btn-square">
                                         <icons.List />
                                     </a>
                                 {% endif %}
-                                <button {% if book.downloaded %}title="Downloaded"class="btn btn-square btn-ghost bg-success text-neutral/20" {% else %} title="Automatic Download" class="btn btn-square" {% endif %}
+                                <button {% if book.downloaded %}title="Downloaded" class="btn btn-square btn-ghost bg-success text-neutral/20" {% elif selected %}title="Download selected release{% if selected.narrators %}: {{ selected.narrators|join(', ') }}{% endif %}" class="btn btn-square" {% else %}title="Auto-download top-ranked source" class="btn btn-square" {% endif %}
                                         {% if not user.can_download() or book.downloaded %}disabled{% endif %}
                                         hx-post="{{ base_url }}/wishlist/hx-auto-download/{{ book.id }}"
                                         hx-swap="outerHTML"

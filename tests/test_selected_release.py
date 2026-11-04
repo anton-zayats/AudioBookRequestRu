@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
+from app.internal.db_queries import get_wishlist_results
 from app.internal.models import (
     AudiobookRequest,
     BookMetadata,
@@ -333,3 +334,48 @@ def test_releases_page_renders(
     body = admin_client.get(f"/request/{BOOK_ID}/releases?only_body=true")
     assert body.status_code == 200, body.text
     assert 'id="releases"' in body.text
+
+
+# -- wishlist auto-download honors the saved release ----------------------
+def test_auto_download_endpoint_honors_selected_release(
+    admin_client: TestClient,
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stored = db.get(AudiobookRequest, (BOOK_ID, "trusted"))
+    assert stored is not None
+    stored.selected_release = SelectedRelease(
+        protocol="direct", guid="direct:auto:1", narrators=["Auto Narrator"]
+    )
+    db.add(stored)
+    db.commit()
+
+    captured: dict[str, object] = {}
+
+    async def _fake_query(*_args: object, **kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr("app.routers.api.requests.query_sources", _fake_query)
+
+    response = admin_client.post(f"/api/requests/{BOOK_ID}/auto-download")
+    assert response.status_code == 204, response.text
+
+    assert captured.get("start_auto_download") is True
+    assert captured.get("selected_release") == SelectedRelease(
+        protocol="direct", guid="direct:auto:1", narrators=["Auto Narrator"]
+    )
+
+
+def test_wishlist_result_exposes_selected_release(db: Session) -> None:
+    stored = db.get(AudiobookRequest, (BOOK_ID, "trusted"))
+    assert stored is not None
+    stored.selected_release = SelectedRelease(
+        protocol="direct", guid="direct:prop:1", narrators=["Prop Narrator"]
+    )
+    db.add(stored)
+    db.commit()
+
+    results = get_wishlist_results(db, None, "not_downloaded")
+    result = next(r for r in results if r.book.id == BOOK_ID)
+    assert result.selected_release is not None
+    assert result.selected_release.narrators == ["Prop Narrator"]

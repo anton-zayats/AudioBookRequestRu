@@ -207,6 +207,13 @@ class AudiobookWishlistResult(BaseModel):
     def requested_by_usernames(self):
         return "\n".join(req.user_username for req in self.requests)
 
+    @property
+    def selected_release(self) -> SelectedRelease | None:
+        for req in self.requests:
+            if req.selected_release is not None:
+                return req.selected_release
+        return None
+
 
 class ManualBookRequest(BaseSQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)

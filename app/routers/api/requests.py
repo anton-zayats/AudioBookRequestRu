@@ -78,6 +78,31 @@ def _audiobook_id(book_ref: str) -> int:
         raise HTTPException(status_code=404, detail="Book not found") from None
 
 
+def _resolve_selected_release(
+    session: Session,
+    book_id: int,
+    user: DetailedUser,
+) -> SelectedRelease | None:
+    """Return the release the acting user picked for a book.
+
+    Prefers the user's own request; admins fall back to any request's
+    selection so a single shared pick is honored.
+    """
+    own = session.get(AudiobookRequest, (book_id, user.username))
+    if own is not None and own.selected_release is not None:
+        return own.selected_release
+
+    if user.is_admin():
+        requests = session.exec(
+            select(AudiobookRequest).where(AudiobookRequest.book_id == book_id)
+        ).all()
+        for req in requests:
+            if req.selected_release is not None:
+                return req.selected_release
+
+    return None
+
+
 # Must be declared before /{book_ref}, otherwise "manual" is parsed as an id.
 @router.post("/manual", status_code=201)
 async def create_manual_request(
@@ -499,12 +524,15 @@ async def start_auto_download_endpoint(
     client_session: Annotated[ClientSession, Depends(get_connection)],
     trusted_user: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.trusted))],
 ):
-    _ = trusted_user
+    selected_release = _resolve_selected_release(
+        session, _audiobook_id(book_ref), trusted_user
+    )
     await query_sources(
         book_ref=book_ref,
         start_auto_download=True,
         session=session,
         client_session=client_session,
+        selected_release=selected_release,
     )
 
     return Response(status_code=204)
