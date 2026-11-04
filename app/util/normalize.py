@@ -51,3 +51,15 @@ def normalize_for_match(s: str) -> str:
     normalized = _NON_KEPT_RE.sub(" ", normalized)
     normalized = _WHITESPACE_RE.sub(" ", normalized)
     return normalized.strip()
+
+
+def narrators_overlap(candidates: list[str], downloaded: list[str]) -> bool:
+    """Whether any candidate narrator is already in the downloaded set.
+
+    Compares each candidate narrator against each downloaded narrator using
+    :func:`normalize_for_match`, so spelling/case/``ё`` differences are ignored.
+    """
+    if not candidates or not downloaded:
+        return False
+    dl = {normalize_for_match(n) for n in downloaded}
+    return any(normalize_for_match(n) in dl for n in candidates)

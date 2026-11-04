@@ -1,7 +1,8 @@
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Literal, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from sqlalchemy import func
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from sqlmodel import Session, asc, col, not_, select
@@ -10,9 +11,12 @@ from app.internal.models import (
     Audiobook,
     AudiobookRequest,
     AudiobookWishlistResult,
+    DownloadSource,
     ManualBookRequest,
+    ReleaseSnapshot,
     User,
 )
+from app.util.log import logger
 
 
 class WishlistCounts(BaseModel):
@@ -161,3 +165,69 @@ def get_all_manual_requests(
         )
         .order_by(asc(ManualBookRequest.downloaded))
     ).all()
+
+
+_download_source_list = TypeAdapter(list[DownloadSource])
+
+
+def save_release_snapshot(
+    session: Session,
+    book_id: int,
+    sources: Sequence[DownloadSource],
+) -> None:
+    """Persist the ranked source list for a book so revisits skip re-querying."""
+    data = [source.model_dump(mode="json") for source in sources]
+    snap = session.get(ReleaseSnapshot, book_id)
+    if snap is None:
+        session.add(ReleaseSnapshot(book_id=book_id, sources=data))
+    else:
+        snap.sources = data
+        snap.updated_at = datetime.now(UTC)
+    session.commit()
+
+
+def load_release_snapshot(
+    session: Session, book_id: int
+) -> list[DownloadSource] | None:
+    """Return persisted sources for a book, or None when there is no snapshot.
+
+    An empty list means a snapshot exists but recorded zero releases (so the
+    chooser should render "no releases" without re-querying).
+    """
+    snap = session.get(ReleaseSnapshot, book_id)
+    if snap is None:
+        return None
+    if not snap.sources:
+        return []
+    try:
+        return _download_source_list.validate_python(snap.sources)
+    except Exception as exc:
+        logger.warning(
+            "Failed to parse release snapshot", book_id=book_id, error=str(exc)
+        )
+        return None
+
+
+def downloaded_narrators(session: Session, book_id: int) -> list[str]:
+    """Narrators of releases already downloaded for a book (deduped).
+
+    Only meaningful while the book is marked downloaded; otherwise there is
+    nothing in the library yet and an empty list is returned.
+    """
+    book = session.get(Audiobook, book_id)
+    if book is None or not book.downloaded:
+        return []
+
+    requests = session.exec(
+        select(AudiobookRequest).where(AudiobookRequest.book_id == book_id)
+    ).all()
+    narrators: list[str] = []
+    seen: set[str] = set()
+    for req in requests:
+        if req.selected_release is None:
+            continue
+        for narrator in req.selected_release.narrators:
+            if narrator and narrator not in seen:
+                seen.add(narrator)
+                narrators.append(narrator)
+    return narrators

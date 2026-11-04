@@ -14,8 +14,9 @@ from fastapi import (
 from sqlmodel import Session
 
 from app.internal.auth.authentication import ABRAuth, DetailedUser
+from app.internal.db_queries import downloaded_narrators
 from app.internal.env_settings import Settings
-from app.internal.models import SelectedRelease
+from app.internal.models import Audiobook, SelectedRelease
 from app.internal.query import query_sources
 from app.internal.ranking.quality import quality_config
 from app.routers.api.requests import create_request
@@ -66,17 +67,36 @@ async def choose_releases(
     client_session: Annotated[ClientSession, Depends(get_connection)],
     user: Annotated[DetailedUser, Security(ABRAuth())],
     only_body: bool = False,
+    refresh: bool = False,
 ):
     result = await query_sources(
         book_ref=book_id,
         session=session,
         client_session=client_session,
+        prefer_snapshot=not refresh,
+        force_refresh=refresh,
+    )
+
+    narrators = (
+        downloaded_narrators(session, result.book.id)
+        if isinstance(result.book, Audiobook)
+        else []
     )
 
     if only_body:
-        return catalog_response("Request.ReleasesContent", result=result, user=user)
+        return catalog_response(
+            "Request.ReleasesContent",
+            result=result,
+            user=user,
+            downloaded_narrators=narrators,
+        )
 
-    return catalog_response("Request.Releases", result=result, user=user)
+    return catalog_response(
+        "Request.Releases",
+        result=result,
+        user=user,
+        downloaded_narrators=narrators,
+    )
 
 
 @router.post("/hx-select/{book_id}")

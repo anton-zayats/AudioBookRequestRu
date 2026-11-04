@@ -144,12 +144,14 @@ async def create_request(
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
 
-    if not session.exec(
+    existing = session.exec(
         select(AudiobookRequest).where(
             AudiobookRequest.book_id == book_id,
             AudiobookRequest.user_username == user.username,
         )
-    ).first():
+    ).first()
+
+    if existing is None:
         book_request = AudiobookRequest(
             book_id=book_id,
             user_username=user.username,
@@ -162,14 +164,26 @@ async def create_request(
             username=censor(user.username),
             book_id=book_id,
         )
+        background_task.add_task(
+            send_all_notifications,
+            event_type=EventEnum.on_new_request,
+            book_id=book_id,
+        )
     else:
-        raise HTTPException(status_code=409, detail="Book already requested")
-
-    background_task.add_task(
-        send_all_notifications,
-        event_type=EventEnum.on_new_request,
-        book_id=book_id,
-    )
+        # Re-request (e.g. choose a different narrator): update the selection
+        # and reset the download state so the new release can be fetched.
+        if selected_release is None:
+            raise HTTPException(status_code=409, detail="Book already requested")
+        existing.selected_release = selected_release
+        book.downloaded = False
+        session.add(existing)
+        session.add(book)
+        session.commit()
+        logger.info(
+            "Updated audiobook request release",
+            username=censor(user.username),
+            book_id=book_id,
+        )
 
     if quality_config.get_auto_download(session) and user.is_above(GroupEnum.trusted):
         # start querying and downloading if auto download is enabled

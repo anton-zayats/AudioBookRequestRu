@@ -10,6 +10,7 @@ from sqlmodel import Session
 
 from app.internal.audiobookshelf.client import abs_trigger_scan
 from app.internal.audiobookshelf.config import abs_config
+from app.internal.db_queries import load_release_snapshot, save_release_snapshot
 from app.internal.downloads.config import DownloadClientMisconfigured
 from app.internal.downloads.dispatch import DirectDownloadFailed, start_direct_download
 from app.internal.models import (
@@ -112,8 +113,14 @@ async def query_sources(
     start_auto_download: bool = False,
     only_return_if_cached: bool = False,
     selected_release: SelectedRelease | None = None,
+    prefer_snapshot: bool = False,
 ) -> QueryResult:
     book = _get_book(session, book_ref)
+
+    if prefer_snapshot and isinstance(book, Audiobook):
+        saved = load_release_snapshot(session, book.id)
+        if saved is not None:
+            return QueryResult(sources=saved, book=book, state="ok")
 
     if book_ref in querying:
         return QueryResult(
@@ -152,6 +159,9 @@ async def query_sources(
 
         is_manual = isinstance(book, ManualBookRequest)
         ranked = await rank_sources(session, client_session, sources, book, is_manual)
+
+        if isinstance(book, Audiobook):
+            save_release_snapshot(session, book.id, ranked)
 
         # start download if requested
         if start_auto_download and not book.downloaded and len(ranked) > 0:

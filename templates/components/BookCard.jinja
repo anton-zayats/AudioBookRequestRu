@@ -29,32 +29,23 @@
             <icons.PhotoOff />
         {% endif %}
         <!-- Request Button -->
-        {% if not book.downloaded and not already_requested %}
-            <a href="{{ base_url }}/request/{{ book.id }}/releases"
-               title="Request this book"
-               class="absolute top-0 right-0 rounded-none rounded-bl-md btn-sm btn btn-square items-center justify-center flex btn-info">
-                {% if auto_start_download and user.can_download() %}
-                    <span>
-                        <icons.Download />
-                    </span>
-                {% else %}
-                    <span>
-                        <icons.Plus />
-                    </span>
-                {% endif %}
-            </a>
-        {% else %}
-            <button class="absolute top-0 right-0 rounded-none rounded-bl-md btn-sm btn btn-square items-center justify-center flex btn-ghost bg-success text-neutral/20"
-                    hx-post="{{ base_url }}/request/hx-add/{{ book.id }}"
-                    hx-disabled-elt="this"
-                    hx-target="closest .book-card"
-                    hx-swap="outerHTML"
-                    hx-on:click="this.disabled = true;"
-                    disabled>
+        <a href="{{ base_url }}/request/{{ book.id }}/releases"
+           title="{% if book.downloaded %}Choose another release{% else %}Request this book{% endif %}"
+           class="absolute top-0 right-0 rounded-none rounded-bl-md btn-sm btn btn-square items-center justify-center flex {% if book.downloaded %}btn-warning{% else %}btn-info{% endif %}">
+            {% if auto_start_download and user.can_download() %}
                 <span>
-                    <icons.Checkmark />
+                    <icons.Download />
                 </span>
-            </button>
+            {% else %}
+                <span>
+                    <icons.Plus />
+                </span>
+            {% endif %}
+        </a>
+        {% if book.downloaded %}
+            <span class="absolute bottom-0 left-0 rounded-none rounded-tr-md badge badge-sm badge-success text-neutral">downloaded</span>
+        {% elif already_requested %}
+            <span class="absolute bottom-0 left-0 rounded-none rounded-tr-md badge badge-sm badge-secondary text-neutral">requested</span>
         {% endif %}
     </div>
     <!-- Book Info -->

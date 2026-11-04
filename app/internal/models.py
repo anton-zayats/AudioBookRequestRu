@@ -194,6 +194,32 @@ class AudiobookRequest(BaseSQLModel, table=True):
     )
 
 
+class ReleaseSnapshot(BaseSQLModel, table=True):
+    """Persisted release search results for a book (P8).
+
+    Stores the ranked :class:`DownloadSource` list so the release chooser can
+    render instantly on revisit instead of re-querying external providers.
+    """
+
+    book_id: int = Field(
+        primary_key=True,
+        foreign_key="audiobook.id",
+        ondelete="CASCADE",
+    )
+    sources: list[dict[str, object]] = Field(
+        default_factory=list, sa_column=Column(JSON)
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(
+            onupdate=func.now(),
+            server_default=func.now(),
+            type_=DateTime,
+            nullable=False,
+        ),
+    )
+
+
 class AudiobookWishlistResult(BaseModel):
     book: Audiobook
     requests: list[AudiobookRequest]

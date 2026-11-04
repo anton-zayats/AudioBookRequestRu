@@ -1,8 +1,9 @@
 {#def
     result: QueryResult,
     user: DetailedUser,
+    downloaded_narrators: list[str] = [],
 #}
 
 <BaseLayout title={{"Choose release - " + result.book.title}} user={{ user }}>
-<Request.ReleasesContent result={{ result }} user={{ user }} />
+<Request.ReleasesContent result={{ result }} user={{ user }} downloaded_narrators={{ downloaded_narrators }} />
 </BaseLayout>

@@ -1,6 +1,7 @@
 {#def
     result: QueryResult,
     user: DetailedUser,
+    downloaded_narrators: list[str] = [],
 #}
 
 {% set book = result.book %}
@@ -17,6 +18,16 @@
             {{ book.authors | join(", ") }}
         </div>
     {% endif %}
+
+    <div class="flex items-center gap-2">
+        <button class="btn btn-sm btn-ghost"
+                hx-get="{{ base_url }}/request/{{ book.id }}/releases?only_body=true&refresh=true"
+                hx-target="#releases"
+                hx-swap="outerHTML"
+                hx-disabled-elt="this">
+            Refresh
+        </button>
+    </div>
 
     {% if not result.ok %}
         <div role="alert"
@@ -116,6 +127,9 @@
                             <td>
                                 {% if source.book_metadata.narrators %}
                                     {{ source.book_metadata.narrators | join(", ") }}
+                                    {% if narrators_overlap(source.book_metadata.narrators, downloaded_narrators) %}
+                                        <span class="badge badge-sm badge-neutral ml-1">in library</span>
+                                    {% endif %}
                                 {% endif %}
                             </td>
                             <td>
