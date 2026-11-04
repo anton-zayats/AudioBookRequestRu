@@ -212,12 +212,12 @@ Test results table (fill as phases complete):
 
 | Phase | Test area | Command / note | Result | Date |
 |---|---|---|---|---|
-| 0 | fixture capture scripts | — | `[ ]` | |
+| 0 | fixture capture scripts | — | `[x]` | 2026-11-03 |
 | 1 | schema/migration + full suite | `uv run pytest` = 74 passed · ruff clean · migration OK | `[x]` | 2026-11-03 |
 | 2 | livelib parsers + endpoints | `uv run pytest` = 85 passed · ruff clean · basedpyright clean | `[x]` | 2026-11-03 |
 | 3 | direct client + aria2 mock | `uv run pytest` = 90 passed · ruff clean · basedpyright clean | `[x]` | 2026-11-03 |
 | 4 | knigavuhe scraper + ranking | `uv run pytest` = 104 passed · ruff clean · basedpyright clean | `[x]` | 2026-11-03 |
-| 5 | full regression | `uv run pytest tests` | `[ ]` | |
+| 5 | full regression | `uv run pytest` = 113 passed | `[x]` | 2026-11-03 |
 | 6 | release/narrator selection | `uv run pytest` = 113 passed · ruff clean · basedpyright clean | `[x]` | 2026-11-03 |
 
 ---

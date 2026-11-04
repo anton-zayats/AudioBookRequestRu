@@ -50,6 +50,11 @@ CATEGORY_TERMS: dict[str, list[str]] = {
 }
 _CATEGORY_LIMIT = 12
 _POLITE_SLEEP = 0.5
+_RATE_LIMIT_URL_MARKER = "/service/ratelimitcaptcha"
+
+
+class LivelibRateLimited(Exception):
+    """Raised when livelib serves its DDoS-Guard rate-limit/captcha page."""
 
 
 class SearchResult(TypedDict):
@@ -256,9 +261,17 @@ class LivelibProvider(MetadataProvider):
         async with self._client() as client:
             yield client
 
+    @staticmethod
+    def _raise_if_blocked(response: httpx.Response) -> None:
+        if _RATE_LIMIT_URL_MARKER in str(response.url):
+            raise LivelibRateLimited(
+                f"livelib served a rate-limit/captcha page ({response.url})"
+            )
+
     async def _get(self, url: str) -> str:
         async with self._http_client() as client:
             response = await client.get(url)
+            self._raise_if_blocked(response)
             response.raise_for_status()
             return response.text
 
@@ -272,6 +285,7 @@ class LivelibProvider(MetadataProvider):
                     "Referer": f"{BASE}/",
                 },
             )
+            self._raise_if_blocked(response)
             response.raise_for_status()
             return response.text
 
@@ -290,6 +304,14 @@ class LivelibProvider(MetadataProvider):
             path += f"/~{page + 1}"
         try:
             html = await self._get(f"{BASE}{path}")
+        except LivelibRateLimited as exc:
+            logger.warning(
+                "livelib rate-limited (captcha) — wait and retry later",
+                query=query,
+                page=page,
+                error=str(exc),
+            )
+            return []
         except Exception as exc:
             logger.error(
                 "livelib search failed", query=query, page=page, error=str(exc)
