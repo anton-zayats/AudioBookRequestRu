@@ -101,8 +101,6 @@ async def extract_qualities(
         raise ValueError("Prowlarr API key not set")
 
     book_seconds = book.runtime_length_min * 60
-    if book_seconds == 0:
-        return []
 
     data = None
     if source.download_url and ENABLE_TORRENT_INSPECTION:
@@ -136,6 +134,11 @@ async def extract_qualities(
         file_format = "m4b"
     elif "audiobook" in source.title.lower():
         file_format = "unknown-audio"
+
+    if book_seconds == 0:
+        # livelib books have no runtime; still emit a quality so the source
+        # is not dropped from ranking (kbits is meaningless at 0).
+        return [Quality(kbits=0, file_format=file_format)]
 
     return [
         Quality(kbits=8 * source.size / book_seconds / 1000, file_format=file_format)
