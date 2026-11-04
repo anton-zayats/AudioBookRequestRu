@@ -97,16 +97,15 @@ app/internal/
 - `Release` — the primary, requestable entity (a persisted `DownloadSource`): title, authors,
   narrators, protocol (`torrent|usenet|direct`), guid, indexer_id, indexer, size,
   seeders/leechers/grabs, file_format, publish_date, info_url, indexer_flags, download_urls.
-- `ReleaseRequest` — `(release_id, user_username, status, error, timestamps)`; replaces the
-  book-centric `AudiobookRequest`. `status` ∈ `pending | downloading | completed | failed`.
+- `ReleaseRequest` — `(release_id, user_username, created_at)`; a bookmark ("download later"), **no status workflow**. Download status lives in `DownloadJob` (P9).
 - `Audiobook` — demoted to the **enrichment/grouping** entity: livelib `(source, external_id)`,
   clean title/authors/cover. No `downloaded` flag (that moves to per-release status).
 - `DownloadJob` — P9 lifecycle row: `(release_request_id, client, external_id, status, error)`.
 - `SearchHistory` — `(user, query, timestamps)` (+ optional result snapshot).
 
 **Search flow:** `GET /api/search?q=` → `query_prowlarr(q)` + `search_direct_sources(q)` → merge →
-`rank_sources(..., reference=q)` → return a ranked `DownloadSource` list. Livelib is **not** in this
-path.
+`rank_sources(..., reference=q)` → return a **flat, paginated** ranked `DownloadSource` list with a
+source filter (`tracker | direct | both`). Livelib is **not** in this path.
 
 **Download dispatch:** `torrent`/`usenet` → Prowlarr grab (`start_download`); `direct` → aria2
 (`start_direct_download`). Completion is tracked per-release by P9 (poll + move-to-library).
@@ -181,10 +180,11 @@ path.
 **Acceptance met:** 113 tests pass (`tests/test_selected_release.py`); ruff/basedpyright clean; migration `b3a1c2d4e5f6` applies; `selected_release` column present.
 
 ### Phase 7 — Release-centric core + search simplification (P12, NEXT)
-- [ ] **Search → releases**: `GET /api/search` queries Prowlarr + direct sources directly (no livelib), returns a ranked release list; the search page renders release rows, not book cards.
-- [ ] `Release` entity + per-release `ReleaseRequest` (status: pending/downloading/completed/failed); migrate off `Audiobook.downloaded` + single `selected_release`.
-- [ ] Decouple request from download: requesting records intent; download is an explicit per-release action (auto-download becomes opt-in).
-- [ ] Narrator extraction from Prowlarr titles (`[Narrator]` / `(Narrator)` patterns) into `book_metadata.narrators`.
+- [ ] **Search → releases**: `GET /api/search` queries Prowlarr + direct sources directly (no livelib), returns a **flat, paginated** ranked release list with a source filter (`tracker | direct | both`); the search page renders release rows, not book cards.
+- [ ] `Release` entity + `ReleaseRequest` as a **bookmark** (no status workflow): `(release_id, user)`; download status lives in `DownloadJob` (P9). Migrate off `Audiobook.downloaded` + single `selected_release`.
+- [ ] Two search actions per release: **Send to download** (immediate) and **Add to requests** (download later).
+- [ ] Requests list actions per release: **download**, **remove**, **check vs existing releases** (narrator-aware ABS check), **refresh** (re-fetch that source's page/guid).
+- [ ] Narrator extraction from Prowlarr titles (`[Narrator]` / `(Narrator)` patterns) into `release.narrators`.
 - [ ] Livelib enrichment service (post-grab): title+author → cover/clean metadata; push author/narrator to ABS.
 - [ ] Search history + release request history.
 - [ ] Consolidate the two source surfaces (chooser + legacy `/wishlist/sources`) into one.
