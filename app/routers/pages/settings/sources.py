@@ -50,10 +50,9 @@ def update_direct_sources(
     indexer_configuration_cache.set_int(session, MAX_CANDIDATES_KEY, max_candidates)
 
     return catalog_response_toast(
-        "Settings.Sources",
+        "Settings.DirectSources",
         "Direct sources updated",
         "success",
-        user=admin_user,
         enabled=enabled,
         knigavuhe_base_url=base_url,
         max_candidates=max_candidates,
