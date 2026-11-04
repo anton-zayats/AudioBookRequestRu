@@ -11,10 +11,10 @@ Russian-language audiobook request manager.
 
 Adapt AudioBookRequest (ABR) so it can serve **Russian-language audiobook requests**:
 
-1. Use **livelib.ru** as the metadata source for Russian books (replacing Audible).
-2. When a book is identified on livelib, search its audio versions in existing Prowlarr indexers **and** new (additional) indexers.
-3. Add a specific indexer + **download client** for **knigavuhe.org** (not a tracker — requires scraping the page to find audio files).
-4. Add the ability to add **new specific, non-tracker download sources** over time.
+1. Search audiobook **releases** directly — Prowlarr trackers + direct sources (knigavuhe) — and show **releases** as search results (no printed-book intermediary).
+2. Use **livelib.ru** only as a metadata/enrichment source (clean title, author, cover) for releases that have already been grabbed.
+3. Track **releases** (not books) as the requestable/downloadable unit, with per-release download status (pending / downloading / completed / failed).
+4. Delegate downloads: trackers → Prowlarr (→ Decypharr, Path B); direct (knigavuhe) → aria2. Non-tracker sources stay pluggable.
 
 ---
 
@@ -28,6 +28,7 @@ Decided with the owner (2026-11-03):
    - **Confirmed (T0.1): aria2 JSON-RPC** is the direct-HTTP client. Decypharr is orthogonal (see §6).
 3. **Canonical livelib identifier**: the **work**, not editions. Search cards' `data-book_id` is the work id (confirmed 20/20 cards). Canonical pair = `(work_id, edition data-link)`; full metadata/similar-books come from the edition page's JSON-LD.
 4. **Direct-source framework**: **code-level plugin interface** (Python classes registered in a list), knigavuhe as the first implementation.
+5. **Search pivot (2026-11-04)**: search goes straight to **Prowlarr + direct sources** and returns **releases**; livelib is used only post-grab for metadata enrichment (title/author/cover). Livelib's own search is **not** the user-facing search.
 
 ### Secondary decisions / notes
 
@@ -67,38 +68,48 @@ Key files (all under `app/`):
 
 ---
 
-## 4. Target architecture
+## 4. Target architecture (revised 2026-11-04 — release-centric)
+
+**Search returns releases; livelib is a dictionary.** The user searches a title/author, ABR queries
+Prowlarr (torrent/usenet) + direct sources (knigavuhe) directly, ranks the results, and shows a
+**release list** (title, author, narrator, source, quality, seeders, sample flag). No printed-book
+intermediary. After a release is grabbed/downloaded, ABR optionally looks it up in livelib
+(title+author → clean title/author/cover) to enrich the entry and push metadata to ABS.
 
 ```
 app/internal/
-  metadata/                 # NEW — replaces app/internal/audible/
-    base.py                 # MetadataProvider ABC
-    livelib.py              # provider (search / single / suggestions / similar / categories)
-    registry.py             # get_provider() from config `metadata_source`
-    # (knigavuhe.py can become a fallback metadata provider if livelib is too fragile)
-  sources/                  # NEW — direct (non-tracker) download-source providers
-    base.py                 # DirectSourceProvider ABC: search(book) -> list[DirectSource]
+  sources/                  # direct (non-tracker) download-source providers + search
+    base.py                 # DirectSourceProvider ABC: search(query) -> list[DirectSource]
     knigavuhe.py            # first provider
+    registry.py             # search_direct_sources(query)
+  prowlarr/                 # torrent/usenet search + grab (search by raw query)
+  ranking/                  # rank_sources over DownloadSource, reference = the query
+  metadata/
+    livelib.py              # enrichment only: find book page by title+author -> cover/metadata
     registry.py
-  downloads/
-    client.py               # DownloadClient ABC
-    aria2.py                # aria2 JSON-RPC (or chosen client)
-    config.py               # host/port/secret/download dir config
-  download_backend.py       # reduced after Chaptarr removal
-  models.py                 # Audiobook: id (PK) + (source, external_id) unique; DirectSource
-  query.py                  # Prowlarr + direct providers, dispatch by protocol
+  downloads/                # DownloadClient ABC + aria2 (+ future DecypharrClient, P7)
+  models.py                 # Release + ReleaseRequest + Audiobook (enrichment) + DownloadJob
+  query.py                  # merge prowlarr + direct results, rank, dispatch by protocol
 ```
 
-**Data model:**
+**Data model (target):**
 
-- `Audiobook`: `id` surrogate PK; `source` = `"livelib"`; `external_id` = livelib **work id**; unique `(source, external_id)`; `url` = livelib work link; metadata fields unchanged.
-- `AudiobookRequest`: `book_id` FK replaces `asin`.
-- Source union: `TorrentSource | UsenetSource | DirectSource(protocol="direct", download_urls, filetype, ...)`.
+- `Release` — the primary, requestable entity (a persisted `DownloadSource`): title, authors,
+  narrators, protocol (`torrent|usenet|direct`), guid, indexer_id, indexer, size,
+  seeders/leechers/grabs, file_format, publish_date, info_url, indexer_flags, download_urls.
+- `ReleaseRequest` — `(release_id, user_username, status, error, timestamps)`; replaces the
+  book-centric `AudiobookRequest`. `status` ∈ `pending | downloading | completed | failed`.
+- `Audiobook` — demoted to the **enrichment/grouping** entity: livelib `(source, external_id)`,
+  clean title/authors/cover. No `downloaded` flag (that moves to per-release status).
+- `DownloadJob` — P9 lifecycle row: `(release_request_id, client, external_id, status, error)`.
+- `SearchHistory` — `(user, query, timestamps)` (+ optional result snapshot).
 
-**Download dispatch:**
+**Search flow:** `GET /api/search?q=` → `query_prowlarr(q)` + `search_direct_sources(q)` → merge →
+`rank_sources(..., reference=q)` → return a ranked `DownloadSource` list. Livelib is **not** in this
+path.
 
-- `torrent` / `usenet` → Prowlarr (existing `start_download`).
-- `direct` → external download client (aria2) with `download_urls` and target directory.
+**Download dispatch:** `torrent`/`usenet` → Prowlarr grab (`start_download`); `direct` → aria2
+(`start_direct_download`). Completion is tracked per-release by P9 (poll + move-to-library).
 
 ---
 
@@ -169,6 +180,24 @@ app/internal/
 
 **Acceptance met:** 113 tests pass (`tests/test_selected_release.py`); ruff/basedpyright clean; migration `b3a1c2d4e5f6` applies; `selected_release` column present.
 
+### Phase 7 — Release-centric core + search simplification (P12, NEXT)
+- [ ] **Search → releases**: `GET /api/search` queries Prowlarr + direct sources directly (no livelib), returns a ranked release list; the search page renders release rows, not book cards.
+- [ ] `Release` entity + per-release `ReleaseRequest` (status: pending/downloading/completed/failed); migrate off `Audiobook.downloaded` + single `selected_release`.
+- [ ] Decouple request from download: requesting records intent; download is an explicit per-release action (auto-download becomes opt-in).
+- [ ] Narrator extraction from Prowlarr titles (`[Narrator]` / `(Narrator)` patterns) into `book_metadata.narrators`.
+- [ ] Livelib enrichment service (post-grab): title+author → cover/clean metadata; push author/narrator to ABS.
+- [ ] Search history + release request history.
+- [ ] Consolidate the two source surfaces (chooser + legacy `/wishlist/sources`) into one.
+
+### Phase 8 — Download lifecycle (P9, after Phase 7)
+- [ ] `DownloadJob` + status poller (aria2 `tellStatus`, Decypharr `/api/torrents`) — terminal states completed/failed.
+- [ ] Completion-only status: mark a release completed only when files finish; failure → failed + notification + Retry/Repair.
+- [ ] Move-to-library on completion: staging `/downloads` → library `/audiobooks`; ABS watches `/audiobooks` only.
+- [ ] Retry/backoff for transient failures; knigavuhe URL refresh at download time.
+- [ ] ABS metadata push (author/narrator) after completion.
+
+**Quick wins (deferred):** button icon/tooltip (#6); pointing the wishlist "Sources" icon at the chooser.
+
 ---
 
 ## 6. Decypharr investigation (T0.1) — RESOLVED
@@ -219,6 +248,9 @@ Test results table (fill as phases complete):
 | 4 | knigavuhe scraper + ranking | `uv run pytest` = 104 passed · ruff clean · basedpyright clean | `[x]` | 2026-11-03 |
 | 5 | full regression | `uv run pytest` = 113 passed | `[x]` | 2026-11-03 |
 | 6 | release/narrator selection | `uv run pytest` = 113 passed · ruff clean · basedpyright clean | `[x]` | 2026-11-03 |
+| 7 | P8 release persistence + re-request + P10 title split (+ sample-only, unmark, ABS cross-ref fixes) | `uv run pytest` = 128 passed · ruff/basedpyright clean · migration `c4d5e6f7a8b9` | `[x]` | 2026-11-04 |
+| 8 | P12 release-centric core + search simplification | — | `[ ]` | — |
+| 9 | P9 download lifecycle | — | `[ ]` | — |
 
 ---
 
@@ -246,10 +278,11 @@ Test results table (fill as phases complete):
 | P5 | Phase 5 — hardening & docs | 5 | delegated (requestId `3174177b-2444-49ec-94b8-d0ac56705ad2`) | `[x]` | verified: 113 tests / ruff / compose OK; README + `.env.example` + compose finalized |
 | T5.1 | Decypharr torrent download-client investigation | 5 | delegated (requestId `47d1fe94-3814-48f6-a4e2-a4596623350c`) | `[x]` | `spikes/T5.1-decypharr-torrent.md` (Path B interim, Path A preferred) |
 | P7 | Decypharr torrent download client (Path A) — deferred | 5 | — | `[ ]` | deferred: Path B chosen (2026-11-03) |
-| P8 | Persist release search results so a user can revisit/request another release | follow-up | — | `[ ]` | — |
-| P9 | Track download completion (aria2/Decypharr) before marking `downloaded` | follow-up | — | `[ ]` | currently marked on submit/enqueue |
-| P10 | Split multi-novel livelib titles (e.g. "Господа Головлевы. Сказки") into separate searches | follow-up | — | `[ ]` | combined editions have no audiobook |
-| P11 | Sync `downloaded` with ABS (unmark books ABS doesn't actually have) | follow-up | — | `[ ]` | — |
+| P8 | Persist release search results; re-request another release | 7 | in-session | `[x]` | verified: 128 tests; `ReleaseSnapshot` + chooser refresh + re-request flow |
+| P9 | Download lifecycle: completion/failure tracking, move-to-library, retry | 8 | — | `[ ]` | moved after P12; scope in §5 Phase 8 |
+| P10 | Split multi-novel livelib titles into separate searches | follow-up | in-session | `[x]` | verified: `split_combined_title` + chooser/sources suggestion |
+| P11 | Sync `downloaded` with ABS (unmark books ABS doesn't have) | follow-up | — | `[~]` | folded into P12/P9 release-centric status |
+| P12 | Release-centric core + search simplification (livelib → metadata only) | 7 | — | `[ ]` | NEXT — see §5 Phase 7 |
 | —  | (future phases, as needed) | —   | — | — | — |
 
 ---
@@ -265,6 +298,10 @@ Test results table (fill as phases complete):
 ---
 
 ## 11. Design notes — request workflow & Audiobookshelf (added 2026-11-03)
+
+> **Note (2026-11-04):** §11.1–11.2 describe the *book-centric* interim design (single
+> `downloaded` flag + `selected_release` on `AudiobookRequest`). They are superseded by the
+> release-centric target model in §4 and the Phase 7/8 plan; kept here as history.
 
 ### 11.1 Release / narrator selection before download
 
