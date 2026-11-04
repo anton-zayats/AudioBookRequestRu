@@ -111,11 +111,11 @@ async def start_download(
 
     manual_book_request: ManualBookRequest | None = None
     book_id: int | None = None
-    try:
-        uuid_obj = uuid.UUID(book_ref)
-        manual_book_request = session.get(ManualBookRequest, uuid_obj)
-    except ValueError:
-        if book_ref is not None:
+    if book_ref is not None:
+        try:
+            uuid_obj = uuid.UUID(book_ref)
+            manual_book_request = session.get(ManualBookRequest, uuid_obj)
+        except ValueError:
             try:
                 book_id = int(book_ref)
             except ValueError:
