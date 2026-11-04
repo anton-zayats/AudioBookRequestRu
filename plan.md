@@ -183,7 +183,7 @@ source filter (`tracker | direct | both`). Livelib is **not** in this path.
 - [ ] **Search → releases**: `GET /api/search` queries Prowlarr + direct sources directly (no livelib), returns a **flat, paginated** ranked release list with a source filter (`tracker | direct | both`); the search page renders release rows, not book cards.
 - [ ] `Release` entity + `ReleaseRequest` as a **bookmark** (no status workflow): `(release_id, user)`; download status lives in `DownloadJob` (P9). Migrate off `Audiobook.downloaded` + single `selected_release`.
 - [ ] Two search actions per release: **Send to download** (immediate) and **Add to requests** (download later).
-- [ ] Requests list actions per release: **download**, **remove**, **check vs existing releases** (narrator-aware ABS check), **refresh** (re-fetch that source's page/guid).
+- [ ] Requests list: shows **in-library state automatically on load** (ABS narrator check every render); per-release actions: **download**, **remove**, **refresh** (re-fetch that source's page/guid).
 - [ ] Narrator extraction from Prowlarr titles (`[Narrator]` / `(Narrator)` patterns) into `release.narrators`.
 - [ ] Livelib enrichment service (post-grab): title+author → cover/clean metadata; push author/narrator to ABS.
 - [ ] Search history + release request history.
