@@ -44,14 +44,7 @@
                    {% if not search_term %}autofocus{% endif %}
                    value="{{ search_term }}"
                    spellcheck="false"
-                   autocomplete="off"
-                   list="search-suggestions"
-                   hx-get="{{ base_url }}/search/hx-suggestions"
-                   hx-target="#search-suggestions"
-                   hx-swap="outerHTML"
-                   hx-trigger="keyup changed delay:100ms" />
-
-            <Search.Suggestions id="search-suggestions" suggestions={{ suggestions }} />
+                   autocomplete="off" />
 
             <button id="search" class="btn btn-primary join-item" type="submit">
                 <span id="search-text">Search</span>

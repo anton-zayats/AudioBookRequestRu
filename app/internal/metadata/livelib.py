@@ -402,49 +402,15 @@ class LivelibProvider(MetadataProvider):
 
     @override
     async def suggestions(self, query: str) -> list[str]:
-        query = query.strip()
-        if not query:
-            return []
-        try:
-            body = await self._post(
-                f"{BASE}/main/search",
-                {
-                    "text": query,
-                    "object_alias": "booksauthors",
-                    "result_element": "x",
-                    "width": "400",
-                    "start": "0",
-                    "limit": "5",
-                    "is_new_design": "0",
-                },
-            )
-            if body.lstrip().startswith("{"):
-                payload = cast(object, json.loads(body))
-                if isinstance(payload, dict):
-                    content = cast(dict[str, object], payload).get("content")
-                    suggestions = (
-                        parse_autocomplete(content) if isinstance(content, str) else []
-                    )
-                else:
-                    suggestions = []
-            else:
-                suggestions = parse_autocomplete(body)
-        except Exception as exc:
-            logger.debug(
-                "livelib autocomplete failed, falling back to search",
-                query=query,
-                error=str(exc),
-            )
-            suggestions = []
+        """Search suggestions are intentionally disabled.
 
-        if not suggestions:
-            try:
-                books = await self.search(query, num_results=5)
-                suggestions = [book.title for book in books if book.title]
-            except Exception as exc:
-                logger.debug("livelib suggestions fallback failed", error=str(exc))
-                suggestions = []
-        return suggestions
+        livelib rate-limits aggressively and the per-keystroke autocomplete
+        (``/main/search``) was the dominant source of requests, so we make no
+        remote call here. Returning an empty list keeps the endpoint functional
+        for API consumers while avoiding any livelib traffic.
+        """
+        _ = query
+        return []
 
     @override
     async def similar(self, book: Audiobook) -> list[Audiobook]:
