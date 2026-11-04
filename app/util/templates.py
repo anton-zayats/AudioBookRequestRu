@@ -15,6 +15,7 @@ from jinjax.jinjax import JinjaX
 from starlette.background import BackgroundTask
 
 from app.internal.env_settings import Settings
+from app.util.title import split_combined_title
 
 templates = Jinja2Blocks(
     env=Environment(
@@ -42,6 +43,7 @@ templates.env.globals["json_regexp"] = (  # pyright: ignore[reportArgumentType]
     r'^\{\s*(?:"[^"\\]*(?:\\.[^"\\]*)*"\s*:\s*"[^"\\]*(?:\\.[^"\\]*)*"\s*(?:,\s*"[^"\\]*(?:\\.[^"\\]*)*"\s*:\s*"[^"\\]*(?:\\.[^"\\]*)*"\s*)*)?\}$'
 )
 templates.env.globals["base_url"] = Settings().app.base_url.rstrip("/")  # pyright: ignore[reportArgumentType]
+templates.env.globals["split_combined_title"] = split_combined_title  # pyright: ignore[reportArgumentType]
 
 with open("CHANGELOG.md", "r") as file:
     changelog_content = file.read()

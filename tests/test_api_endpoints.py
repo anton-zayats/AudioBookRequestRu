@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from datetime import UTC, datetime
 from typing import override
 
+import aiohttp
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 from app.internal.metadata.base import MetadataProvider
 from app.internal.models import Audiobook
@@ -260,6 +264,48 @@ def test_audiobookshelf(admin_client: TestClient, abs_service: MockServer) -> No
     tested_body = json_object(tested)
     assert tested_body["library_count"] == 1
     assert tested_body["triggered_scan"] is True
+
+
+def test_abs_mark_downloaded_skips_unrequested_books(
+    db: Session, abs_service: MockServer
+) -> None:
+    from app.internal.audiobookshelf.client import abs_mark_downloaded_flags
+
+    _ = abs_service  # fixture configures ABS base url/token/check-downloaded
+
+    requested = db.get(Audiobook, BOOK_ID)
+    assert requested is not None and not requested.downloaded
+
+    # Matches the ABS mock (title "Test Book", author "Mock Author") but has
+    # no AudiobookRequest, so it must stay requestable.
+    unrequested = Audiobook(
+        source="livelib",
+        external_id="work-unrequested",
+        title="Test Book",
+        subtitle=None,
+        authors=["Mock Author"],
+        narrators=[],
+        cover_image=None,
+        release_date=datetime(2020, 1, 1, tzinfo=UTC),
+        runtime_length_min=600,
+        downloaded=False,
+    )
+    db.add(unrequested)
+    db.commit()
+    db.refresh(unrequested)
+
+    async def _run() -> None:
+        async with aiohttp.ClientSession() as client_session:
+            await abs_mark_downloaded_flags(
+                db, client_session, [requested, unrequested]
+            )
+
+    asyncio.run(_run())
+
+    db.refresh(requested)
+    db.refresh(unrequested)
+    assert requested.downloaded is True
+    assert unrequested.downloaded is False
 
 
 # -- prowlarr --------------------------------------------------------------

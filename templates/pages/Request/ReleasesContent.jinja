@@ -39,6 +39,20 @@
             </span>
             <span>No releases found for "{{ book.title }}".</span>
         </div>
+        {% set parts = split_combined_title(book.title) %}
+        {% if parts %}
+            <div class="alert alert-info flex-col items-start gap-2">
+                <span class="text-sm">This looks like a combined edition. Search each work separately:</span>
+                <div class="flex flex-wrap gap-2">
+                    {% for part in parts %}
+                        <a class="btn btn-sm btn-outline"
+                           href="{{ base_url }}/search?q={{ part }}{% if book.authors %} {{ book.authors|join(' ') }}{% endif %}">
+                            {{ part }}
+                        </a>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
     {% endif %}
 
     {% if result.ok %}

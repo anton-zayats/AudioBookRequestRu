@@ -277,8 +277,10 @@ async def abs_mark_downloaded_flags(
 ) -> None:
     if not abs_config.get_check_downloaded(session):
         return
-    # Only check books not already marked downloaded
-    to_check = [b for b in books if not b.downloaded]
+    # Only check books that have a request and aren't already marked. A book
+    # that merely matches ABS by title+author but was never requested here must
+    # stay requestable (the user may want a different narrator/release).
+    to_check = [b for b in books if not b.downloaded and b.requests]
     # Limit to avoid flooding ABS
     to_check = to_check[:25]
 
