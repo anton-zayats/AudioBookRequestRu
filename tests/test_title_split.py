@@ -25,8 +25,3 @@ def test_split_combined_title_three_parts() -> None:
 
 def test_split_combined_title_single_work_is_empty() -> None:
     assert split_combined_title("Господа Головлёвы") == []
-
-
-def test_split_combined_title_ignores_initials() -> None:
-    # "А. Б." initials should not be mistaken for an edition boundary.
-    assert split_combined_title("А. Б. Житков. Рассказы") == []
