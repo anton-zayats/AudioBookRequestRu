@@ -321,6 +321,103 @@ DownloadSource = Annotated[
 ]
 
 
+class Release(BaseSQLModel, table=True):
+    """A concrete audiobook release found via search (P12 target model)."""
+
+    __table_args__: tuple[UniqueConstraint] = (
+        UniqueConstraint("protocol", "guid", name="uq_release_protocol_guid"),
+    )
+
+    id: int = Field(default=None, primary_key=True)
+    protocol: str
+    guid: str
+    title: str
+    authors: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    narrators: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    indexer_id: int
+    indexer: str
+    size: int
+    seeders: int | None = None
+    leechers: int | None = None
+    grabs: int | None = None
+    file_format: str | None = None
+    publish_date: datetime
+    info_url: str | None = None
+    indexer_flags: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    download_urls: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    magnet_url: str | None = None
+    download_url: str | None = None
+    book_id: int | None = Field(
+        default=None, foreign_key="audiobook.id", ondelete="SET NULL"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(server_default=func.now(), type_=DateTime, nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(
+            onupdate=func.now(),
+            server_default=func.now(),
+            type_=DateTime,
+            nullable=False,
+        ),
+    )
+
+
+class ReleaseRequest(BaseSQLModel, table=True):
+    """A bookmark: a release to download later (no status workflow)."""
+
+    release_id: int = Field(
+        primary_key=True, foreign_key="release.id", ondelete="CASCADE"
+    )
+    user_username: str = Field(
+        primary_key=True, foreign_key="user.username", ondelete="CASCADE"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(server_default=func.now(), type_=DateTime, nullable=False),
+    )
+
+
+class DownloadJob(BaseSQLModel, table=True):
+    """A submitted download and its lifecycle state (P9)."""
+
+    id: int = Field(default=None, primary_key=True)
+    release_id: int = Field(foreign_key="release.id", ondelete="CASCADE")
+    user_username: str = Field(foreign_key="user.username", ondelete="CASCADE")
+    client: str
+    external_id: str | None = None
+    status: str = "downloading"
+    error: str | None = None
+    created_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(server_default=func.now(), type_=DateTime, nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(
+            onupdate=func.now(),
+            server_default=func.now(),
+            type_=DateTime,
+            nullable=False,
+        ),
+    )
+
+
+class SearchHistory(BaseSQLModel, table=True):
+    """A saved search query for the user's history."""
+
+    id: int = Field(default=None, primary_key=True)
+    user_username: str = Field(foreign_key="user.username", ondelete="CASCADE")
+    query: str
+    result_count: int = 0
+    created_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(server_default=func.now(), type_=DateTime, nullable=False),
+    )
+
+
 class Indexer(BaseModel, frozen=True):
     id: int
     name: str
