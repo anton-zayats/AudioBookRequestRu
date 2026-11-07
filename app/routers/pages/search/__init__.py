@@ -1,11 +1,12 @@
 from typing import Annotated
 
 from aiohttp import ClientSession
-from fastapi import APIRouter, Depends, Query, Security
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Security
 from sqlmodel import Session
 
 from app.internal.auth.authentication import ABRAuth, DetailedUser
 from app.internal.downloads.config import DownloadClientMisconfigured
+from app.internal.metadata.enrichment import background_enrich_release
 from app.internal.models import DownloadSource, Release
 from app.internal.prowlarr.prowlarr import DownloadFailed
 from app.internal.releases import (
@@ -122,6 +123,7 @@ async def download_row(
     session: Annotated[Session, Depends(get_session)],
     user: Annotated[DetailedUser, Security(ABRAuth())],
     client_session: Annotated[ClientSession, Depends(get_connection)],
+    background_task: BackgroundTasks,
 ):
     """Send a search result straight to its download client."""
     release = session.get(Release, release_id)
@@ -132,6 +134,7 @@ async def download_row(
     message = "Release sent to download"
     try:
         await download_release(session, client_session, release, user.username)
+        background_task.add_task(background_enrich_release, release_id)
     except (DownloadFailed, DownloadClientMisconfigured) as e:
         session.rollback()
         toast_type = "error"

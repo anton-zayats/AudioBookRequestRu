@@ -1,5 +1,6 @@
 import json
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import cast
 from urllib.parse import quote_plus, urlencode
 
@@ -18,6 +19,7 @@ from app.internal.auth.session_middleware import (
     DynamicSessionMiddleware,
     middleware_linker,
 )
+from app.internal.downloads.poller import start_poller, stop_poller
 from app.internal.env_settings import Settings
 from app.internal.models import User
 from app.internal.prowlarr.util import ProwlarrMisconfigured
@@ -37,9 +39,19 @@ with next(get_session()) as session:
     initialize_force_login_type(session)
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    start_poller()
+    try:
+        yield
+    finally:
+        stop_poller()
+
+
 app = FastAPI(
     title="AudioBookRequest",
     debug=Settings().app.debug,
+    lifespan=lifespan,
     openapi_url="/openapi.json" if Settings().app.openapi_enabled else None,
     description="API for AudiobookRequest",
     middleware=[

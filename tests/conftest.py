@@ -51,6 +51,7 @@ from app.internal.prowlarr.util import (
 from app.internal.ranking.quality import quality_config
 from app.util.db import engine
 from tests.constants import BOOK_ID, DOWNLOADED_BOOK_ID, MANUAL_ID
+from tests.fakes import FakeMetadataProvider
 
 # app.main performs DB work at import time, so the schema must exist first.
 models.BaseSQLModel.metadata.create_all(engine)
@@ -137,6 +138,23 @@ def mock_server() -> Iterator[mock_services.MockServer]:
     yield server
     server.stop()
     shutil.rmtree(CONFIG_DIR, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def offline_enrichment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep post-grab enrichment offline; tests opt in with their own provider."""
+
+    class _EmptyProvider(FakeMetadataProvider):
+        async def search(
+            self, query: str, num_results: int = 20, page: int = 0
+        ) -> list[Audiobook]:
+            _ = (query, num_results, page)
+            return []
+
+    monkeypatch.setattr(
+        "app.internal.metadata.enrichment.get_provider",
+        lambda _session: _EmptyProvider(),
+    )
 
 
 @pytest.fixture(autouse=True)

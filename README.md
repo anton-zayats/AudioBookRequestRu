@@ -92,8 +92,13 @@ Mount that directory locally somewhere to ensure persistent data across restarts
 ### Metadata (livelib.ru)
 
 **livelib.ru** is used for **suggestions and metadata enrichment** only; it is no longer the search entry point.
-Releases are found by searching Prowlarr and the enabled direct sources directly. There is no metadata source to
-configure — livelib is the default (and currently only) provider.
+Releases are found by searching Prowlarr and the enabled direct sources directly. Configure it under
+`Settings > Providers > Metadata providers` (enabled, base URL, request delay/timeout).
+
+After a release is sent to download, ABR looks it up on livelib (title + author) and links the release to the
+resulting book: the stored release title/authors get cleaned up and the cover becomes available for the book.
+**livelib is a printed-book database, so it never provides a narrator** — narrators come from the release itself
+(direct providers name their reader) or from the tracker upload title.
 
 ### Tracker downloads (Prowlarr)
 
@@ -121,6 +126,10 @@ Torrent releases are grabbed through Prowlarr, which does not tell ABR what happ
 ABR computes the torrent infohash before grabbing (from the magnet link or `.torrent` URL), stores it on the download
 job, and looks it up in the client's queue: finished torrents become *Downloaded*, errored ones *Download failed*.
 Leave the field empty to disable torrent status tracking.
+
+Status is polled **automatically every 60 seconds** while something is downloading (direct jobs through aria2,
+torrents through the client above), so the requests page updates itself. The **Refresh status** button does the same
+on demand.
 
 #### Torrent downloads via Decypharr (optional)
 

@@ -2,12 +2,20 @@ from datetime import datetime
 from typing import Annotated
 
 from aiohttp import ClientSession
-from fastapi import APIRouter, Depends, HTTPException, Response, Security
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Response,
+    Security,
+)
 from pydantic import BaseModel
 from sqlmodel import Session
 
 from app.internal.auth.authentication import AnyAuth, DetailedUser
 from app.internal.downloads.config import DownloadClientMisconfigured
+from app.internal.metadata.enrichment import background_enrich_release
 from app.internal.models import DownloadSource, GroupEnum, Release
 from app.internal.prowlarr.prowlarr import DownloadFailed
 from app.internal.releases import (
@@ -40,12 +48,14 @@ async def download(
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
     user: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.trusted))],
+    background_task: BackgroundTasks,
 ) -> Release:
     release = upsert_release(session, body)
     try:
         await download_release(session, client_session, release, user.username)
     except (DownloadFailed, DownloadClientMisconfigured) as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+    background_task.add_task(background_enrich_release, release.id)
     session.refresh(release)
     return release
 
@@ -116,6 +126,7 @@ async def download_bookmarked(
     session: Annotated[Session, Depends(get_session)],
     client_session: Annotated[ClientSession, Depends(get_connection)],
     user: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.trusted))],
+    background_task: BackgroundTasks,
 ) -> Release:
     release = session.get(Release, release_id)
     if release is None:
@@ -124,5 +135,6 @@ async def download_bookmarked(
         await download_release(session, client_session, release, user.username)
     except (DownloadFailed, DownloadClientMisconfigured) as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+    background_task.add_task(background_enrich_release, release.id)
     session.refresh(release)
     return release

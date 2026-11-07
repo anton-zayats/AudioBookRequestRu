@@ -20,6 +20,7 @@ from app.internal.audiobookshelf.config import abs_config
 from app.internal.auth.authentication import ABRAuth, DetailedUser
 from app.internal.db_queries import get_all_manual_requests
 from app.internal.downloads.config import DownloadClientMisconfigured
+from app.internal.metadata.enrichment import background_enrich_release
 from app.internal.models import GroupEnum, Release
 from app.internal.prowlarr.prowlarr import DownloadFailed
 from app.internal.releases import (
@@ -212,6 +213,7 @@ async def download_request(
     session: Annotated[Session, Depends(get_session)],
     user: Annotated[DetailedUser, Security(ABRAuth())],
     client_session: Annotated[ClientSession, Depends(get_connection)],
+    background_task: BackgroundTasks,
 ):
     release = _get_release(session, release_id)
 
@@ -219,6 +221,7 @@ async def download_request(
     message = "Release sent to download"
     try:
         await download_release(session, client_session, release, user.username)
+        background_task.add_task(background_enrich_release, release_id)
     except (DownloadFailed, DownloadClientMisconfigured) as e:
         session.rollback()
         toast_type = "error"

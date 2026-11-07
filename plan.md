@@ -185,8 +185,8 @@ source filter (`tracker | direct | both`). Livelib is **not** in this path.
 - [x] Requests backend: admin-wide bookmark listing with requester names, per-release download **state label** (`Not downloaded | Sent to download | Downloaded | Download failed`), in-library flag, and title+author grouping helpers (`app/util/release_title.py`, `group_release_views`).
 - [x] Requests page UI: `/requests` groups bookmarks by title+author (expandable), shows the per-release **state label** and in-library badge, with **download**, **refresh** (re-fetch source / fresh direct URLs) and **remove** per release; admins see everyone's bookmarks with requester names. Manual requests moved to the `/requests/manual` tab.
 - [x] **Retired the book-centric surfaces**: removed `/wishlist`, the per-book `Sources` table, the `/request/{book_id}/releases` chooser and `/api/recommendations`; dropped `AudiobookRequest`, `SelectedRelease`, `ReleaseSnapshot`, `Audiobook.downloaded`, `app/internal/query.py`, `downloads/dispatch.py`, the book-card home sections (home now shows **popular releases**) and the old tests. Legacy URLs redirect (`/wishlist` → `/requests`, chooser → `/search?q=<title>`). Migration `a1b2c3d4e5f6`.
-- [ ] Narrator extraction from Prowlarr titles (`[Narrator]` / `(Narrator)` patterns) into `release.narrators`.
-- [ ] Livelib enrichment service (post-grab): title+author → cover/clean metadata; push author/narrator to ABS.
+- [ ] Narrator extraction from Prowlarr titles (`[Narrator]` / `(Narrator)` patterns) into `release.narrators` — **next**; direct providers already pin the narrator, tracker uploads need 3–5 common patterns plus user overrides.
+- [x] Livelib enrichment service (post-grab): `app/internal/metadata/enrichment.py` looks a grabbed release up by title+author, upserts the `Audiobook`, sets `release.book_id`, cleans the release title/authors (cover available via the book). Idempotent, best-effort, runs in a background task. **livelib is print-only and has no narrator**, so narrators are never taken from it. ABS metadata push stays part of P9.
 - [ ] Search history + release request history (rows are written; no UI yet).
 - [ ] Rework the now-inert `Auto Download` setting for the release flow (currently only affects the manual-request note).
 - [x] **Settings > Providers**: one page for metadata providers (livelib: enabled/base URL/request delay/timeout) and direct sources (knigavuhe: enabled/base URL/max candidates/scrape delay), rendered from a shared typed field list (`app/internal/providers/`). The old `Settings > Indexers` page and the whole `app/internal/indexers/` (MAM enrichment) subsystem were deleted, as was `Settings > Direct sources` (superseded); `/settings/indexers` and `/settings/sources` redirect. Livelib is now configurable instead of hardcoded, and the suggestions endpoint respects its enabled flag.
@@ -197,7 +197,7 @@ source filter (`tracker | direct | both`). Livelib is **not** in this path.
   - **torrents**: ABR computes the infohash before the Prowlarr grab (Prowlarr never returns it) and queries a
     **qBittorrent-compatible client** (works with Decypharr; `Settings > Download > Torrent client`) →
     completed / failed / still downloading.
-  - background polling (scheduler) is still future work — status is on-demand today.
+  - **automatic background polling** every 60 s (`app/internal/downloads/poller.py`, APScheduler started in the app lifespan): polls only when in-flight jobs exist, flips aria2/torrent jobs to completed/failed, triggers an ABS scan on completions.
 - [ ] Completion-only status: mark a release completed only when files finish; failure → failed + notification + Retry/Repair.
 - [ ] Move-to-library on completion: staging `/downloads` → library `/audiobooks`; ABS watches `/audiobooks` only.
 - [ ] Retry/backoff for transient failures; knigavuhe URL refresh at download time.
