@@ -45,6 +45,7 @@ from app.internal.models import (
 from app.internal.notifications import send_all_notifications
 from app.internal.prowlarr.prowlarr import start_download, torrent_info_hash
 from app.util.log import logger
+from app.util.release_narrators import extract_narrators
 from app.util.release_title import (
     clean_release_title,
     release_author_key,
@@ -105,13 +106,15 @@ def release_from_source(source: DownloadSource) -> Release:
     one) over the raw result title (tracker upload names carry quality noise).
     """
     title = source.book_metadata.title or source.title
+    # Direct providers name their reader; tracker uploads carry it in the title.
+    narrators = source.book_metadata.narrators or extract_narrators(source.title)
     if isinstance(source, TorrentSource):
         return Release(
             protocol="torrent",
             guid=source.guid,
             title=title,
             authors=source.book_metadata.authors,
-            narrators=source.book_metadata.narrators,
+            narrators=narrators,
             indexer_id=source.indexer_id,
             indexer=source.indexer,
             size=source.size,
@@ -129,7 +132,7 @@ def release_from_source(source: DownloadSource) -> Release:
             guid=source.guid,
             title=title,
             authors=source.book_metadata.authors,
-            narrators=source.book_metadata.narrators,
+            narrators=narrators,
             indexer_id=source.indexer_id,
             indexer=source.indexer,
             size=source.size,
@@ -145,7 +148,7 @@ def release_from_source(source: DownloadSource) -> Release:
         guid=source.guid,
         title=title,
         authors=source.book_metadata.authors,
-        narrators=source.book_metadata.narrators,
+        narrators=narrators,
         indexer_id=source.indexer_id,
         indexer=source.indexer,
         size=source.size,

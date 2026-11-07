@@ -27,6 +27,7 @@ from app.internal.prowlarr.util import (
 )
 from app.util.connection import USER_AGENT
 from app.util.log import logger
+from app.util.release_narrators import extract_narrators
 
 
 class DownloadFailed(Exception):
@@ -348,6 +349,14 @@ async def query_prowlarr(
                 )
         except KeyError as e:
             logger.error("Failed to parse source", source=result, keyerror=str(e))
+
+    # Tracker uploads carry the narrator in the title; expose it on the source
+    # so both the API and the persisted release agree.
+    for source in sources:
+        if not source.book_metadata.narrators:
+            narrators = extract_narrators(source.title)
+            if narrators:
+                source.book_metadata.narrators = narrators
 
     prowlarr_source_cache.set(sources, query)
 

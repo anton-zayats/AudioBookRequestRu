@@ -97,8 +97,18 @@ Releases are found by searching Prowlarr and the enabled direct sources directly
 
 After a release is sent to download, ABR looks it up on livelib (title + author) and links the release to the
 resulting book: the stored release title/authors get cleaned up and the cover becomes available for the book.
-**livelib is a printed-book database, so it never provides a narrator** — narrators come from the release itself
-(direct providers name their reader) or from the tracker upload title.
+**livelib is a printed-book database, so it never provides a narrator.**
+
+Narrators therefore come from the release itself:
+
+- **direct sources** (knigavuhe) name their reader explicitly — that always wins;
+- **tracker uploads** carry it in the title. ABR understands the common tracker shapes, primarily rutracker's
+  `Автор - Название [Исполнитель, Год, Битрейт, Формат]` (the narrator is the first field in the trailing bracket),
+  plus `Исполнитель: X`, `Читает X`, `(Читает X)`, `[X]`. Years, bitrates, audio formats, genre fields and
+  placeholders like `Разные`/`Артисты театров` are rejected.
+
+When a title is ambiguous nothing is guessed — the Narrator column simply stays empty and you can pick a different
+release. A wrong narrator is worse than a blank one.
 
 ### Tracker downloads (Prowlarr)
 
