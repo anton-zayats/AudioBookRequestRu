@@ -198,6 +198,39 @@ def remove_release_request(session: Session, release_id: int, username: str) -> 
     return True
 
 
+def remove_release_request_all(session: Session, release_id: int) -> int:
+    """Drop every bookmark of a release (admin action); returns rows removed."""
+    requests = session.exec(
+        select(ReleaseRequest).where(ReleaseRequest.release_id == release_id)
+    ).all()
+    for req in requests:
+        session.delete(req)
+    session.commit()
+    return len(requests)
+
+
+async def refresh_release(
+    session: Session, client_session: ClientSession, release: Release
+) -> Release | None:
+    """Re-fetch a release from its source and update the stored copy.
+
+    Returns ``None`` when the source no longer lists that exact release (gone or
+    renamed guid). The direct-source URL refresh (knigavuhe links expire) also
+    happens here, because a fresh search returns fresh download URLs.
+    """
+    from app.internal.search import SourceFilter, search_releases
+
+    source_filter: SourceFilter = (
+        "direct" if release.protocol == "direct" else "tracker"
+    )
+    query = clean_release_title(release.title)
+    sources = await search_releases(session, client_session, query, source_filter)
+    for source in sources:
+        if source.protocol == release.protocol and source.guid == release.guid:
+            return upsert_release(session, source)
+    return None
+
+
 class ReleaseBookmark(BaseModel):
     """A bookmarked release plus who bookmarked it."""
 
@@ -366,6 +399,21 @@ class ReleaseGroup:
     def key(self) -> str:
         return release_group_key(self.title, self.authors)
 
+    @property
+    def has_in_library(self) -> bool:
+        """Whether any release of this book is already in the library."""
+        return any(view.in_library for view in self.releases)
+
+    @property
+    def requesters(self) -> list[str]:
+        """Every user that bookmarked a release of this book."""
+        names: list[str] = []
+        for view in self.releases:
+            for name in view.requested_by:
+                if name not in names:
+                    names.append(name)
+        return names
+
 
 def group_release_views(views: list[ReleaseView]) -> list[ReleaseGroup]:
     """Group release views by title + author, keeping first-seen order.
@@ -421,9 +469,9 @@ async def _enqueue_direct(
     client_session: ClientSession,
     release: Release,
 ) -> list[str]:
-    download_client_config.raise_if_invalid(session)
     if not release.download_urls:
         raise DownloadClientMisconfigured("No downloadable files (sample-only release)")
+    download_client_config.raise_if_invalid(session)
 
     authors = ", ".join(release.authors) if release.authors else "Unknown Author"
     target_dir = posixpath.join(

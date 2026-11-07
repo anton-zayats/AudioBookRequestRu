@@ -1,0 +1,76 @@
+{#def
+    user: DetailedUser,
+    groups: list[ReleaseGroup],
+#}
+
+<div id="requests-content" class="flex flex-col gap-2">
+    {% if not groups %}
+        <div role="alert" class="alert">
+            <span class="stroke-info h-6 w-6 shrink-0">
+                <icons.InfoCircle />
+            </span>
+            <span>
+                No releases in your requests yet. Search for a book and use
+                <span class="font-semibold">Add to requests</span> to bookmark a release for later.
+            </span>
+        </div>
+    {% endif %}
+    {% for group in groups %}
+        <details class="collapse collapse-arrow bg-base-200 border border-base-300"
+                 {% if groups|length <= 10 %}open{% endif %}>
+            <summary class="collapse-title flex flex-wrap items-center gap-2 pr-10">
+                <span class="font-semibold">{{ group.title }}</span>
+                {% if group.authors %}
+                    <span class="text-sm opacity-70">{{ group.authors | join(", ") }}</span>
+                {% endif %}
+                <span class="badge badge-sm badge-ghost">
+                    {{ group.releases | length }} release{% if group.releases | length != 1 %}s{% endif %}
+                </span>
+                {% if group.has_in_library %}
+                    <span class="badge badge-sm badge-success">In library</span>
+                {% endif %}
+                {% if user.is_admin() and group.requesters %}
+                    <span class="text-xs opacity-60">requested by {{ group.requesters | join(", ") }}</span>
+                {% endif %}
+            </summary>
+            <div class="collapse-content overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>
+                                Release
+                            </th>
+                            <th>
+                                Narrator
+                            </th>
+                            <th>
+                                Source
+                            </th>
+                            <th>
+                                Protocol
+                            </th>
+                            <th>
+                                Size (MB)
+                            </th>
+                            {% if user.is_admin() %}
+                                <th>
+                                    Requested by
+                                </th>
+                            {% endif %}
+                            <th>
+                                Status
+                            </th>
+                            <th>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for view in group.releases %}
+                            <Requests.ReleaseRow view={{ view }} user={{ user }} />
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    {% endfor %}
+</div>

@@ -1,0 +1,72 @@
+{#def
+    view: ReleaseView,
+    user: DetailedUser,
+#}
+{% set release = view.release %}
+{% set no_files = release.protocol == "direct" and not release.download_urls %}
+<tr id="request-row-{{ release.id }}" class="text-xs lg:text-sm">
+    <td>
+        {% if release.info_url %}
+            <a href="{{ release.info_url }}" class="link" target="_blank" rel="noreferrer">{{ release.title }}</a>
+        {% else %}
+            {{ release.title }}
+        {% endif %}
+    </td>
+    <td>
+        {{ release.narrators | join(", ") }}
+    </td>
+    <td>
+        {{ release.indexer }}
+    </td>
+    <td>
+        {{ release.protocol }}
+    </td>
+    <td>
+        {% if release.size %}{{ release.size_MB }}{% else %}—{% endif %}
+    </td>
+    {% if user.is_admin() %}
+        <td>
+            {{ view.requested_by | join(", ") }}
+        </td>
+    {% endif %}
+    <td>
+        <div class="flex flex-col gap-1 items-start">
+            <span class="badge badge-sm {{ view.status_tone }}">{{ view.status_label }}</span>
+            {% if "sample" in release.indexer_flags %}
+                <span class="badge badge-sm badge-warning">Sample only</span>
+            {% endif %}
+        </div>
+    </td>
+    <td>
+        <div class="flex flex-wrap gap-1 justify-end">
+            <button class="btn btn-sm btn-primary"
+                    title="{% if no_files %}This release has no downloadable files{% else %}Send this release to the download client{% endif %}"
+                    hx-post="{{ base_url }}/requests/hx-download/{{ release.id }}"
+                    hx-target="#requests-content"
+                    hx-swap="outerHTML"
+                    hx-disabled-elt="this"
+                    {% if no_files %}disabled{% endif %}>
+                <icons.Download />
+                Download
+            </button>
+            <button class="btn btn-sm"
+                    title="Re-fetch this release from its source (fresh download links)"
+                    hx-post="{{ base_url }}/requests/hx-refresh/{{ release.id }}"
+                    hx-target="#requests-content"
+                    hx-swap="outerHTML"
+                    hx-disabled-elt="this">
+                <icons.TestPipe />
+                Refresh
+            </button>
+            <button class="btn btn-sm"
+                    title="{% if user.is_admin() %}Remove this release from everyone's requests{% else %}Remove this release from your requests{% endif %}"
+                    hx-delete="{{ base_url }}/requests/hx-remove/{{ release.id }}"
+                    hx-target="#requests-content"
+                    hx-swap="outerHTML"
+                    hx-disabled-elt="this">
+                <icons.Ban />
+                Remove
+            </button>
+        </div>
+    </td>
+</tr>

@@ -1,0 +1,18 @@
+{#def
+    user: DetailedUser,
+    groups: list[ReleaseGroup],
+#}
+
+<BaseLayout title="Requests" user={{ user }}>
+<div class="w-screen flex flex-col gap-2 p-2 md:p-4 lg:p-8">
+    <div class="flex flex-col gap-1">
+        <h1 class="text-3xl font-bold">
+            Requests
+        </h1>
+        <span class="text-sm opacity-70">
+            Releases you want to download later. Add them from the search page.
+        </span>
+    </div>
+    <Requests.Content user={{ user }} groups={{ groups }} />
+</div>
+</BaseLayout>

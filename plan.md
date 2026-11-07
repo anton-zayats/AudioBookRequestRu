@@ -183,7 +183,8 @@ source filter (`tracker | direct | both`). Livelib is **not** in this path.
 ### Phase 7 — Release-centric core + search simplification (P12, IN PROGRESS)
 - [x] **Search → releases**: `GET /api/search` queries Prowlarr + direct sources directly (no livelib), returns a **flat, paginated** ranked release list with a source filter (`tracker | direct | both`); the search page renders release rows with the source filter, a **Send to download** / **Add to requests** action pair per row, and an **in-library** badge (ABS title+author check, cached).
 - [x] Requests backend: admin-wide bookmark listing with requester names, per-release download **state label** (`Not downloaded | Sent to download | Downloaded | Download failed`), in-library flag, and title+author grouping helpers (`app/util/release_title.py`, `group_release_views`).
-- [ ] Requests page UI: grouped by title/author with per-release **download**, **remove**, **refresh** (re-fetch that source's page/guid); retire `Audiobook.downloaded` + `selected_release` UI.
+- [x] Requests page UI: `/requests` groups bookmarks by title+author (expandable), shows the per-release **state label** and in-library badge, with **download**, **refresh** (re-fetch source / fresh direct URLs) and **remove** per release; admins see everyone's bookmarks with requester names. Wired into the nav next to the legacy Wishlist.
+- [ ] Retire the book-centric surfaces: `/wishlist` book tabs, per-book `Sources` table, `/request/{book_id}/releases` chooser; drop `Audiobook.downloaded` + `selected_release` UI.
 - [ ] Narrator extraction from Prowlarr titles (`[Narrator]` / `(Narrator)` patterns) into `release.narrators`.
 - [ ] Livelib enrichment service (post-grab): title+author → cover/clean metadata; push author/narrator to ABS.
 - [ ] Search history + release request history.
@@ -249,7 +250,7 @@ Test results table (fill as phases complete):
 | 5 | full regression | `uv run pytest` = 113 passed | `[x]` | 2026-11-03 |
 | 6 | release/narrator selection | `uv run pytest` = 113 passed · ruff clean · basedpyright clean | `[x]` | 2026-11-03 |
 | 7 | P8 release persistence + re-request + P10 title split (+ sample-only, unmark, ABS cross-ref fixes) | `uv run pytest` = 128 passed · ruff/basedpyright clean · migration `c4d5e6f7a8b9` | `[x]` | 2026-11-04 |
-| 8 | P12 release-centric core + search simplification | steps 1–2 done: `uv run pytest` = 147 passed · ruff/basedpyright clean | `[~]` | 2026-11-04 |
+| 8 | P12 release-centric core + search simplification | steps 1–3 done: `uv run pytest` = 155 passed · ruff/basedpyright clean | `[~]` | 2026-11-04 |
 | 9 | P9 download lifecycle | — | `[ ]` | — |
 
 ---
@@ -282,7 +283,7 @@ Test results table (fill as phases complete):
 | P9 | Download lifecycle: completion/failure tracking, move-to-library, retry | 8 | — | `[ ]` | moved after P12; scope in §5 Phase 8 |
 | P10 | Split multi-novel livelib titles into separate searches | follow-up | in-session | `[x]` | verified: `split_combined_title` + chooser/sources suggestion |
 | P11 | Sync `downloaded` with ABS (unmark books ABS doesn't have) | follow-up | — | `[~]` | folded into P12/P9 release-centric status |
-| P12 | Release-centric core + search simplification (livelib → metadata only) | 7 | in-session | `[~]` | steps 1–2: release search UI (filter/actions/in-library) + bookmark API (admin-wide, state) — see §5 Phase 7 |
+| P12 | Release-centric core + search simplification (livelib → metadata only) | 7 | in-session | `[~]` | steps 1–3: release search UI + `/requests` grouped release page — see §5 Phase 7 |
 | —  | (future phases, as needed) | —   | — | — | — |
 
 ---
