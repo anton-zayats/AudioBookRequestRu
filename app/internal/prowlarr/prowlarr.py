@@ -11,19 +11,15 @@ from pydantic import BaseModel, TypeAdapter
 from sqlmodel import Session
 from torf import BdecodeError, MetainfoError, ReadError, Torrent
 
-from app.internal.indexers.abstract import SessionContainer
 from app.internal.models import (
-    Audiobook,
     EventEnum,
     Indexer,
-    ManualBookRequest,
     ProwlarrSource,
     RankReference,
     TorrentSource,
     UsenetSource,
 )
 from app.internal.notifications import send_all_notifications
-from app.internal.prowlarr.source_metadata import edit_source_metadata
 from app.internal.prowlarr.util import (
     prowlarr_config,
     prowlarr_indexer_cache,
@@ -352,12 +348,6 @@ async def query_prowlarr(
                 )
         except KeyError as e:
             logger.error("Failed to parse source", source=result, keyerror=str(e))
-
-    # add additional metadata using any available indexers (book entities only;
-    # raw search queries have no enrichment source)
-    if isinstance(book, (Audiobook, ManualBookRequest)):
-        container = SessionContainer(session=session, client_session=client_session)
-        await edit_source_metadata(book, sources, container)
 
     prowlarr_source_cache.set(sources, query)
 

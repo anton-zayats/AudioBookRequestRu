@@ -21,17 +21,13 @@ from urllib.parse import quote
 
 from selectolax.lexbor import LexborHTMLParser
 
-from app.internal.indexers.abstract import SessionContainer
-from app.internal.indexers.configuration import (
-    Configurations,
-    IndexerConfiguration,
-    indexer_configuration_cache,
-)
 from app.internal.models import (
     BookMetadata,
     DirectSource,
     RankReference,
 )
+from app.internal.providers.configuration import SessionContainer, get_int, get_str
+from app.internal.providers.definitions import KNGAVUHE, field_by_key
 from app.internal.sources.base import DirectSourceProvider
 from app.util.connection import USER_AGENT
 from app.util.log import logger
@@ -39,34 +35,12 @@ from app.util.log import logger
 DEFAULT_BASE_URL = "https://knigavuhe.org"
 DEFAULT_MAX_CANDIDATES = 3
 
-ENABLED_KEY = "knigavuhe_enabled"
-BASE_URL_KEY = "knigavuhe_base_url"
-MAX_CANDIDATES_KEY = "knigavuhe_max_candidates"
-
 # Stable synthetic per-provider indexer id. Prowlarr indexers use their own id
 # space; direct providers get their own namespace starting at 1000.
 KNGAVUHE_INDEXER_ID = 1000
 
 _PLACEHOLDER_DATE = datetime(1970, 1, 1, tzinfo=UTC)
 _BOOK_PLAYER_ID_RE = re.compile(r"new BookPlayer\(\s*(\d+)")
-
-
-class KnigavuheConfigurations(Configurations):
-    knigavuhe_enabled: IndexerConfiguration[bool] = IndexerConfiguration(
-        display_name="Enabled",
-        default=True,
-        type_=bool,
-    )
-    knigavuhe_base_url: IndexerConfiguration[str] = IndexerConfiguration(
-        display_name="Base URL",
-        default=DEFAULT_BASE_URL,
-        type_=str,
-    )
-    knigavuhe_max_candidates: IndexerConfiguration[int] = IndexerConfiguration(
-        display_name="Max candidates",
-        default=DEFAULT_MAX_CANDIDATES,
-        type_=int,
-    )
 
 
 @dataclass(frozen=True)
@@ -253,19 +227,15 @@ def build_source(
 class KnigavuheProvider(DirectSourceProvider):
     name: str = "knigavuhe"
 
-    @override
-    def get_configurations(self, container: SessionContainer) -> Configurations:
-        _ = container
-        return KnigavuheConfigurations()
-
     def _base_url(self, container: SessionContainer) -> str:
-        base = indexer_configuration_cache.get(container.session, BASE_URL_KEY)
-        return (base or DEFAULT_BASE_URL).rstrip("/")
+        base_field = field_by_key(KNGAVUHE, "knigavuhe_base_url")
+        assert base_field is not None
+        return (get_str(container.session, base_field) or DEFAULT_BASE_URL).rstrip("/")
 
     def _max_candidates(self, container: SessionContainer) -> int:
-        value = indexer_configuration_cache.get_int(
-            container.session, MAX_CANDIDATES_KEY, DEFAULT_MAX_CANDIDATES
-        )
+        max_field = field_by_key(KNGAVUHE, "knigavuhe_max_candidates")
+        assert max_field is not None
+        value = get_int(container.session, max_field)
         if value < 1:
             return DEFAULT_MAX_CANDIDATES
         return value
@@ -276,8 +246,7 @@ class KnigavuheProvider(DirectSourceProvider):
         book: RankReference,
         container: SessionContainer,
     ) -> list[DirectSource]:
-        configurations = self.get_configurations(container)
-        if not self.is_enabled(container, configurations):
+        if not self.is_enabled(container):
             return []
 
         title = book.title.strip()

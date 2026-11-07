@@ -1,0 +1,8 @@
+{#def
+    user: DetailedUser,
+    groups: dict[str, list[ProviderValues]],
+#}
+
+<SettingsLayout user={{ user }} page="providers" title="Settings - Providers">
+<Settings.ProvidersContent user={{ user }} groups={{ groups }} />
+</SettingsLayout>

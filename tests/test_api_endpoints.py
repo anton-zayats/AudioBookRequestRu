@@ -393,25 +393,57 @@ def test_notifications_validation(admin_client: TestClient) -> None:
     assert invalid_body.status_code == 422
 
 
-# -- indexers --------------------------------------------------------------
-def test_indexer_configurations(admin_client: TestClient) -> None:
-    got = admin_client.get("/api/indexers/configurations")
-    assert got.status_code == 200
-    assert "MyAnonamouse" in json_object(got)
+# -- providers -------------------------------------------------------------
+def test_providers_list(admin_client: TestClient) -> None:
+    got = admin_client.get("/api/providers")
+    assert got.status_code == 200, got.text
+    providers = [as_dict(item) for item in json_list(got)]
+    assert [provider["name"] for provider in providers] == ["livelib", "knigavuhe"]
+
+    livelib = providers[0]
+    assert livelib["kind"] == "metadata"
+    fields = {
+        as_dict(field)["key"]: as_dict(field)["value"]
+        for field in as_list(livelib["fields"])
+    }
+    assert fields["livelib_base_url"] == "https://www.livelib.ru"
+    assert fields["livelib_enabled"] is True
+
+    sections = json_object(admin_client.get("/api/providers/sections"))
+    assert set(sections) == {"Metadata providers", "Direct download sources"}
 
 
-def test_update_indexer(admin_client: TestClient) -> None:
+def test_update_provider(admin_client: TestClient) -> None:
     updated = admin_client.patch(
-        "/api/indexers/MyAnonamouse",
-        json={"mam_session_id": "session", "enabled": "on"},
+        "/api/providers/livelib",
+        json={"livelib_request_delay_ms": "750", "livelib_enabled": "false"},
     )
     assert updated.status_code == 204, updated.text
 
-    unknown = admin_client.patch("/api/indexers/Unknown", json={"x": "y"})
-    assert unknown.status_code == 400
+    providers = [
+        as_dict(item) for item in json_list(admin_client.get("/api/providers"))
+    ]
+    fields = {
+        as_dict(field)["key"]: as_dict(field)["value"]
+        for field in as_list(providers[0]["fields"])
+    }
+    assert fields["livelib_request_delay_ms"] == 750
+    assert fields["livelib_enabled"] is False
 
-    bad_body = admin_client.patch("/api/indexers/MyAnonamouse", json=[1, 2])
-    assert bad_body.status_code == 400
+    assert (
+        admin_client.patch("/api/providers/unknown", json={"x": "y"}).status_code == 404
+    )
+    assert (
+        admin_client.patch("/api/providers/livelib", json={"nope": "y"}).status_code
+        == 400
+    )
+    assert admin_client.patch("/api/providers/livelib", json=[1, 2]).status_code == 400
+    assert (
+        admin_client.patch(
+            "/api/providers/livelib", json={"livelib_request_delay_ms": "abc"}
+        ).status_code
+        == 400
+    )
 
 
 # -- requests --------------------------------------------------------------
@@ -481,9 +513,9 @@ def test_openapi_spec(admin_client: TestClient) -> None:
     paths = as_dict(spec["paths"])
 
     # Manually parsed bodies are still documented.
-    indexer = as_dict(_get(paths, "/api/indexers/{indexer}", "patch"))
-    assert "requestBody" in indexer
-    assert "204" in as_dict(indexer["responses"])
+    provider = as_dict(_get(paths, "/api/providers/{provider}", "patch"))
+    assert "requestBody" in provider
+    assert "204" in as_dict(provider["responses"])
 
     for endpoint in ("base-url", "api-token", "library", "check-downloaded"):
         body = as_dict(

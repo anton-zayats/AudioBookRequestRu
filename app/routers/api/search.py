@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, Security
 from sqlmodel import Session
 
 from app.internal.auth.authentication import AnyAuth, DetailedUser
-from app.internal.metadata.registry import get_provider
+from app.internal.metadata.registry import get_provider, is_metadata_enabled
 from app.internal.models import DownloadSource, SearchHistory
 from app.internal.search import SourceFilter, search_releases
 from app.util.connection import get_connection
@@ -59,7 +59,7 @@ async def search_suggestions(
     user: Annotated[DetailedUser, Security(AnyAuth())],
 ) -> list[str]:
     _ = user
-    if not query.strip():
+    if not query.strip() or not is_metadata_enabled(session):
         return []
     provider = get_provider(session)
     return await provider.suggestions(query)

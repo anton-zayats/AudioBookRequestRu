@@ -41,9 +41,8 @@ from app.internal.auth.config import auth_config
 from app.internal.auth.login_types import LoginTypeEnum
 from app.internal.auth.oidc_config import oidc_config
 from app.internal.downloads.config import download_client_config
-from app.internal.indexers.configuration import indexer_configuration_cache
-from app.internal.indexers.mam import MamIndexer
 from app.internal.models import Audiobook, GroupEnum, ManualBookRequest
+from app.internal.providers.configuration import provider_configuration_cache
 from app.internal.prowlarr.util import (
     prowlarr_config,
     prowlarr_indexer_cache,
@@ -67,11 +66,10 @@ def _flush_caches() -> None:
     oidc_config.flush()
     prowlarr_config.flush()
     quality_config.flush()
+    provider_configuration_cache.flush()
     download_client_config.flush()
-    indexer_configuration_cache.flush()
     prowlarr_source_cache.flush()
     prowlarr_indexer_cache.flush()
-    MamIndexer.results.clear()
 
 
 def _seed() -> None:

@@ -223,25 +223,43 @@ def test_download_page(admin_client: TestClient) -> None:
 
 
 # -- settings: indexers ----------------------------------------------------
-def test_indexers_page(admin_client: TestClient) -> None:
-    assert admin_client.get("/settings/indexers").status_code == 200
+def test_providers_page(admin_client: TestClient) -> None:
+    page = admin_client.get("/settings/providers")
+    assert page.status_code == 200
+    assert "livelib" in page.text
+    assert "knigavuhe" in page.text
 
     saved = admin_client.post(
-        "/settings/indexers/hx-save",
-        data={"indexer_select": "MyAnonamouse", "mam_session_id": "x", "enabled": "on"},
+        "/settings/providers/hx-save",
+        data={
+            "provider": "knigavuhe",
+            "knigavuhe_enabled": "on",
+            "knigavuhe_base_url": "https://knigavuhe.org",
+            "knigavuhe_max_candidates": "5",
+            "knigavuhe_request_delay_ms": "1200",
+        },
     )
     assert saved.status_code == 200, saved.text
+    assert "settings saved" in saved.headers.get("HX-Trigger", "")
+    assert 'value="5"' in saved.text
+
+    invalid = admin_client.post(
+        "/settings/providers/hx-save",
+        data={"provider": "knigavuhe", "knigavuhe_max_candidates": "abc"},
+    )
+    assert invalid.status_code == 200
+    assert "must be a number" in invalid.text
 
     unknown = admin_client.post(
-        "/settings/indexers/hx-save",
-        data={"indexer_select": "Unknown", "x": "y"},
+        "/settings/providers/hx-save", data={"provider": "nope"}
     )
     assert unknown.status_code == 200
+    assert "Unknown provider" in unknown.text
 
-    bad_file = admin_client.post(
-        "/settings/indexers/hx-read-file", data={"file_path": "/does/not/exist"}
-    )
-    assert bad_file.status_code == 200
+    for legacy in ("/settings/sources", "/settings/indexers"):
+        redirect = admin_client.get(legacy, follow_redirects=False)
+        assert redirect.status_code == 302
+        assert redirect.headers["location"] == "/settings/providers"
 
 
 # -- settings: notifications ----------------------------------------------

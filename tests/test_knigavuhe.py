@@ -12,12 +12,8 @@ import aiohttp
 import pytest
 from sqlmodel import Session
 
-from app.internal.indexers.abstract import SessionContainer
-from app.internal.indexers.configuration import (
-    Configurations,
-    indexer_configuration_cache,
-)
 from app.internal.models import Audiobook, DirectSource, ManualBookRequest
+from app.internal.providers.configuration import SessionContainer
 from app.internal.sources import registry
 from app.internal.sources.base import DirectSourceProvider
 from app.internal.sources.knigavuhe import (
@@ -101,6 +97,7 @@ class _FakeProvider(DirectSourceProvider):
     name: str
     _sources: list[DirectSource]
     called: bool
+    disabled: bool
 
     def __init__(
         self,
@@ -110,11 +107,12 @@ class _FakeProvider(DirectSourceProvider):
         self.name = name
         self._sources = sources or []
         self.called = False
+        self.disabled = False
 
     @override
-    def get_configurations(self, container: SessionContainer) -> Configurations:
+    def is_enabled(self, container: SessionContainer) -> bool:
         _ = container
-        return Configurations()
+        return not self.disabled
 
     @override
     async def search(
@@ -153,8 +151,8 @@ def test_search_direct_sources_skips_disabled(
     assert book is not None
 
     provider = _FakeProvider(name="knigavuhe", sources=[_canned_source()])
+    provider.disabled = True
     monkeypatch.setattr(registry, "direct_source_providers", [provider])
-    indexer_configuration_cache.set_bool(db, "knigavuhe_enabled", False)
 
     async def run() -> list[DirectSource]:
         async with aiohttp.ClientSession() as client_session:

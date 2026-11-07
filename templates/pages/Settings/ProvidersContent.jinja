@@ -1,0 +1,75 @@
+{#def
+    user: DetailedUser,
+    groups: dict[str, list[ProviderValues]],
+#}
+
+<div id="providers-settings" class="flex flex-col gap-6">
+    {% for section, providers in groups.items() %}
+        <section class="flex flex-col gap-4">
+            <h2 class="text-lg">
+                {{ section }}
+            </h2>
+            {% for values in providers %}
+                {% set definition = values.definition %}
+                <form class="flex flex-col gap-2 rounded-md border border-base-300 p-4"
+                      hx-post="{{ base_url }}/settings/providers/hx-save"
+                      hx-target="#providers-settings"
+                      hx-swap="outerHTML">
+                    <input type="hidden" name="provider" value="{{ definition.name }}" />
+                    <div class="flex items-center justify-between gap-2">
+                        <h3 class="font-bold text-base">
+                            {{ definition.name }}
+                            {% if not values.enabled %}
+                                <span class="badge badge-sm badge-ghost ml-1">disabled</span>
+                            {% endif %}
+                        </h3>
+                    </div>
+                    <p class="text-xs opacity-60">
+                        {{ definition.description }}
+                    </p>
+                    {% for field in definition.fields %}
+                        {% if field.is_bool() %}
+                            <label class="flex items-center gap-2 cursor-pointer pt-2"
+                                   for="{{ field.key }}">
+                                <input id="{{ field.key }}"
+                                       name="{{ field.key }}"
+                                       type="checkbox"
+                                       class="checkbox"
+                                       {% if values.value(field) %}checked{% endif %} />
+                                <span>
+                                    {{ field.display_name }}
+                                    {% if field.required %}
+                                        <span class="text-error">*</span>
+                                    {% endif %}
+                                </span>
+                            </label>
+                        {% else %}
+                            <label for="{{ field.key }}" class="pt-2">
+                                {{ field.display_name }}
+                                {% if field.required %}
+                                    <span class="text-error">*</span>
+                                {% endif %}
+                            </label>
+                            <input id="{{ field.key }}"
+                                   name="{{ field.key }}"
+                                   type="{% if field.is_int() %}number{% else %}text{% endif %}"
+                                   class="input w-full"
+                                   value="{{ values.value(field) }}"
+                                   {% if field.required %}required{% endif %} />
+                        {% endif %}
+                        {% if field.description %}
+                            <p class="text-xs opacity-60">
+                                {{ field.description }}
+                            </p>
+                        {% endif %}
+                    {% endfor %}
+                    <div class="pt-2">
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            Save
+                        </button>
+                    </div>
+                </form>
+            {% endfor %}
+        </section>
+    {% endfor %}
+</div>

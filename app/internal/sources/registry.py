@@ -3,8 +3,8 @@
 from aiohttp import ClientSession
 from sqlmodel import Session
 
-from app.internal.indexers.abstract import SessionContainer
 from app.internal.models import DirectSource, RankReference
+from app.internal.providers.configuration import SessionContainer
 from app.internal.sources.base import DirectSourceProvider
 from app.internal.sources.knigavuhe import KnigavuheProvider
 from app.util.log import logger
@@ -26,8 +26,7 @@ async def search_direct_sources(
     sources: list[DirectSource] = []
     for provider in direct_source_providers:
         try:
-            configurations = provider.get_configurations(container)
-            if not provider.is_enabled(container, configurations):
+            if not provider.is_enabled(container):
                 logger.debug("direct source provider disabled", name=provider.name)
                 continue
             found = await provider.search(book, container)

@@ -52,7 +52,7 @@ Key files (all under `app/`):
 | Query orchestration | `internal/query.py` |
 | Prowlarr search + grab | `internal/prowlarr/prowlarr.py`, `prowlarr/util.py` |
 | Download backend switch | `internal/download_backend.py` (`prowlarr` \| `chaptarr`) |
-| Indexer enrichment plugin (MAM) | `internal/indexers/` |
+| Indexer enrichment plugin (MAM) | `internal/indexers/` — **removed** (see Phase 7) |
 | Source ranking (fuzzy match) | `internal/ranking/download_ranking.py`, `quality.py` |
 | Configuration cache | `util/cache.py` (`StringConfigCache` / `SimpleCache`) |
 | Templates | `templates/` (JinjaX + htmx) |
@@ -156,7 +156,7 @@ source filter (`tracker | direct | both`). Livelib is **not** in this path.
 ### Phase 4 — Knigavuhe provider (DONE; split 4a provider + 4b matching)
 - [x] `sources/base.py` (`DirectSourceProvider` ABC) + `registry.py` + `search_direct_sources` (aggregates enabled providers).
 - [x] `sources/knigavuhe.py`: config (enabled/base_url/max_candidates); search-card parse (selectolax) → book page `new BookPlayer(...)` JSON (re+json) → `DirectSource` with `download_urls` + `book_metadata.narrators`/`filetype`.
-- [x] Settings: separate **Direct sources** page (`Settings/Sources.jinja` + api/pages settings routes) — deliberately apart from `indexers/` so Prowlarr source-enrichment (MAM) stays isolated.
+- [x] Settings: separate **Direct sources** page (`Settings/Sources.jinja` + api/pages settings routes) — deliberately apart from `indexers/` so Prowlarr source-enrichment (MAM) stays isolated. *(Superseded in Phase 7: single **Settings > Providers** page; MAM/indexers removed.)*
 - [x] Russian-aware fuzzy matching: `app/util/normalize.py` (NFKC, ё→е, lowercase, punctuation/whitespace collapsing) wired into `download_ranking.py`.
 - Confirmed (T0.3): `url` = `https://s{N}.knigavuhe.org/1/audio/{book_id}/{md5_32}/{track}.mp3?{v}`; url_refresh ~2.5 days → never cache URLs.
 - [x] knigavuhe `search()` returns per-release narrator/reader metadata for the release chooser (§11.1).
@@ -189,6 +189,7 @@ source filter (`tracker | direct | both`). Livelib is **not** in this path.
 - [ ] Livelib enrichment service (post-grab): title+author → cover/clean metadata; push author/narrator to ABS.
 - [ ] Search history + release request history (rows are written; no UI yet).
 - [ ] Rework the now-inert `Auto Download` setting for the release flow (currently only affects the manual-request note).
+- [x] **Settings > Providers**: one page for metadata providers (livelib: enabled/base URL/request delay/timeout) and direct sources (knigavuhe: enabled/base URL/max candidates/scrape delay), rendered from a shared typed field list (`app/internal/providers/`). The old `Settings > Indexers` page and the whole `app/internal/indexers/` (MAM enrichment) subsystem were deleted, as was `Settings > Direct sources` (superseded); `/settings/indexers` and `/settings/sources` redirect. Livelib is now configurable instead of hardcoded, and the suggestions endpoint respects its enabled flag.
 
 ### Phase 8 — Download lifecycle (P9, NEXT)
 - [x] `DownloadJob` + status poller via the Requests page's **Refresh status** action:

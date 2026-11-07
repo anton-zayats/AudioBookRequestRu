@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Response
 from sqlmodel import Session, select, text
 
-from app.routers.api.indexers import router as indexers_router
+from app.routers.api.providers import router as providers_router
 from app.routers.api.releases import router as releases_router
 from app.routers.api.requests import router as requests_router
 from app.routers.api.search import router as search_router
@@ -13,7 +13,7 @@ from app.util.db import get_session
 from app.util.log import logger
 
 router = APIRouter(prefix="/api")
-router.include_router(indexers_router)
+router.include_router(providers_router)
 router.include_router(releases_router)
 router.include_router(requests_router)
 router.include_router(search_router)

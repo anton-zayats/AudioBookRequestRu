@@ -17,6 +17,12 @@ from app.util.redirect import BaseUrlRedirectResponse
 router = APIRouter()
 
 
+@router.get("/settings/sources")
+@router.get("/settings/indexers")
+async def legacy_provider_settings() -> BaseUrlRedirectResponse:
+    return BaseUrlRedirectResponse("/settings/providers")
+
+
 @router.get("/wishlist")
 async def legacy_wishlist() -> BaseUrlRedirectResponse:
     return BaseUrlRedirectResponse("/requests")

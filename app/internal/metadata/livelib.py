@@ -92,7 +92,7 @@ def _as_str_list(value: object) -> list[str]:
     return [item for item in items if isinstance(item, str)]
 
 
-def parse_search_results(html: str) -> list[SearchResult]:
+def parse_search_results(html: str, base: str = BASE) -> list[SearchResult]:
     """Parse /find/books/<query> result cards into work-level records."""
     parser = LexborHTMLParser(html)
     results: list[SearchResult] = []
@@ -131,13 +131,13 @@ def parse_search_results(html: str) -> list[SearchResult]:
                 author=author,
                 cover=cover,
                 genres=genres,
-                edition_url=f"{BASE}{link}" if link else None,
+                edition_url=f"{base}{link}" if link else None,
             )
         )
     return results
 
 
-def parse_work_editions(html: str) -> list[dict[str, str]]:
+def parse_work_editions(html: str, base: str = BASE) -> list[dict[str, str]]:
     """Parse /book/<work_id>/editions into the first-page edition links."""
     seen: set[str] = set()
     editions: list[dict[str, str]] = []
@@ -150,7 +150,7 @@ def parse_work_editions(html: str) -> list[dict[str, str]]:
             {
                 "edition_id": edition_id,
                 "slug": slug,
-                "url": f"{BASE}/book/{edition_id}-{slug}",
+                "url": f"{base}/book/{edition_id}-{slug}",
             }
         )
     return editions
@@ -245,11 +245,25 @@ def external_id_from_url(url: str | None) -> str:
 
 
 class LivelibProvider(MetadataProvider):
+    base_url: str
+    delay: float
+    timeout: float
+
+    def __init__(
+        self,
+        base_url: str = BASE,
+        delay: float = _POLITE_SLEEP,
+        timeout: float = 30.0,
+    ) -> None:
+        self.base_url = base_url.rstrip("/") or BASE
+        self.delay = max(0.0, delay)
+        self.timeout = timeout
+
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             http2=True,
             follow_redirects=True,
-            timeout=httpx.Timeout(30.0),
+            timeout=httpx.Timeout(self.timeout),
             headers={
                 "User-Agent": USER_AGENT,
                 "Accept-Language": "ru-RU,ru;q=0.9",
@@ -282,7 +296,7 @@ class LivelibProvider(MetadataProvider):
                 data=data,
                 headers={
                     "X-Requested-With": "XMLHttpRequest",
-                    "Referer": f"{BASE}/",
+                    "Referer": f"{self.base_url}/",
                 },
             )
             self._raise_if_blocked(response)
@@ -303,7 +317,7 @@ class LivelibProvider(MetadataProvider):
         if page > 0:
             path += f"/~{page + 1}"
         try:
-            html = await self._get(f"{BASE}{path}")
+            html = await self._get(f"{self.base_url}{path}")
         except LivelibRateLimited as exc:
             logger.warning(
                 "livelib rate-limited (captcha) — wait and retry later",
@@ -320,7 +334,7 @@ class LivelibProvider(MetadataProvider):
 
         books: list[Audiobook] = []
         seen: set[str] = set()
-        for item in parse_search_results(html):
+        for item in parse_search_results(html, base=self.base_url):
             work_id = item["work_id"]
             if not work_id or work_id in seen:
                 continue
@@ -348,7 +362,9 @@ class LivelibProvider(MetadataProvider):
     @override
     async def get_book(self, external_id: str) -> Audiobook | None:
         try:
-            editions_html = await self._get(f"{BASE}/book/{external_id}/editions")
+            editions_html = await self._get(
+                f"{self.base_url}/book/{external_id}/editions"
+            )
         except Exception as exc:
             logger.error(
                 "livelib editions fetch failed",
@@ -357,12 +373,12 @@ class LivelibProvider(MetadataProvider):
             )
             return None
 
-        editions = parse_work_editions(editions_html)
+        editions = parse_work_editions(editions_html, base=self.base_url)
         if not editions:
             return None
 
         try:
-            await asyncio.sleep(_POLITE_SLEEP)
+            await asyncio.sleep(self.delay)
             detail_html = await self._get(editions[0]["url"])
         except Exception as exc:
             logger.error(
@@ -466,6 +482,6 @@ class LivelibProvider(MetadataProvider):
                     if book.external_id not in seen:
                         seen.add(book.external_id)
                         books.append(book)
-                await asyncio.sleep(_POLITE_SLEEP)
+                await asyncio.sleep(self.delay)
             result[category] = books[:_CATEGORY_LIMIT]
         return result

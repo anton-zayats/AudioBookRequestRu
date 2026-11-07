@@ -153,8 +153,9 @@ no tracker or torrent client is involved.
    - **Port** — the aria2 RPC port (default `6800`).
    - **RPC secret** — the same secret aria2 was started with.
    - **Base download directory** — the directory aria2 writes into; point this at the volume Audiobookshelf also watches.
-3. Head to `Settings > Direct sources` and make sure **knigavuhe** is enabled (base URL defaults to
-   `https://knigavuhe.org`, and `Max candidates` bounds how many candidate releases are scraped per book).
+3. Head to `Settings > Providers > Direct download sources` and make sure **knigavuhe** is enabled
+   (base URL defaults to `https://knigavuhe.org`; `Max candidates` bounds how many book pages are scraped
+   per search, and `Delay between book pages` keeps the scraping polite).
 
 ### Release & narrator selection
 
@@ -236,7 +237,8 @@ deployment stack that also runs Prowlarr, the torrent client, aria2 and Audioboo
 - `Settings > Prowlarr` — base URL and API key (internal URL, e.g. `http://prowlarr:9696`).
 - `Settings > Download` — aria2 host/port/RPC secret and the base download directory (shared with Audiobookshelf).
 - `Settings > Audiobookshelf` — base URL, API token, library.
-- `Settings > Direct sources` — knigavuhe enabled/disabled.
+- `Settings > Providers` — livelib (metadata: enable, base URL, request delay/timeout) and knigavuhe
+  (direct source: enable, base URL, max candidates, scrape delay).
 
 For local development without any of that, run the app directly (`just dev` / `uv run fastapi dev`) and configure the
 services you have; the direct-source search works with no other service running.
