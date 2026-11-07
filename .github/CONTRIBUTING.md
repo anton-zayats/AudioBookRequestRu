@@ -48,7 +48,7 @@ For any new features, please first open an issue or use an already existing issu
    ```sh
    uv run alembic check
    ```
-4. If you have added any new migrations, ensure that the new migrations **correctly** upgrade and downgrade for both SQLite and Postgres (filled with some data). The local `docker-compose.yml` can be used to spin up a postgres instance.
+4. If you have added any new migrations, ensure that the new migrations **correctly** upgrade and downgrade for both SQLite and Postgres (filled with some data). Spin up a throwaway Postgres for that (e.g. `docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:17`); this repository ships no compose file.
 
 ## The use of AI
 

@@ -132,8 +132,9 @@ ABS scans are idempotent so this is safe, though the scan may run slightly early
 Books that knigavuhe.org hosts directly are downloaded by handing the audio URLs to an **aria2 JSON-RPC** server —
 no tracker or torrent client is involved.
 
-1. Run an aria2 instance with RPC enabled and an RPC secret (see the local `docker-compose.yml` for a ready-made
-   `aria2` service).
+1. Run an aria2 instance with RPC enabled and an RPC secret. This repository ships **no** compose file: aria2 (like
+   Prowlarr and Audiobookshelf) belongs to your own deployment stack, e.g. `p3terx/aria2-pro` with `RPC_SECRET` set
+   and a download directory volume shared with Audiobookshelf.
 2. In AudioBookRequestRu, head to `Settings > Download` and fill in the download client settings:
    - **Host** — the aria2 host (e.g. `aria2` in the compose stack, or `localhost`).
    - **Port** — the aria2 RPC port (default `6800`).
@@ -213,37 +214,19 @@ uv run basedpyright app
 Type checks run with `basedpyright` (`just types`), tests with `pytest` (`just test`), and the Jinja templates are
 validated with `djlint` (`just test_format`).
 
-### Local test stack
+### Running alongside your own stack
 
-`docker compose --profile local up` starts ABR alongside PostgreSQL, Prowlarr, qBittorrent, and aria2:
+The repository deliberately contains **no** `docker-compose.yml`: AudioBookRequestRu is one service inside the
+deployment stack that also runs Prowlarr, the torrent client, aria2 and Audiobookshelf. Run the app image with your
+`config` volume mounted (`/config`) and point the Settings UI at your existing services:
 
-| Service     | URL                   | Notes                                        |
-| ----------- | --------------------- | -------------------------------------------- |
-| ABR         | http://localhost:8000 |                                              |
-| Prowlarr    | http://localhost:9696 |                                              |
-| qBittorrent | http://localhost:8081 | temporary admin password printed in its logs |
-| aria2       | http://localhost:6800 | RPC secret from `ABR_ARIA2_RPC_SECRET`      |
-| Decypharr   | http://localhost:8282 | debrid gateway (optional; torrents via Prowlarr) |
-| PostgreSQL  | http://localhost:5432 | `abr` / `password` / `audiobookrequest`      |
+- `Settings > Prowlarr` — base URL and API key (internal URL, e.g. `http://prowlarr:9696`).
+- `Settings > Download` — aria2 host/port/RPC secret and the base download directory (shared with Audiobookshelf).
+- `Settings > Audiobookshelf` — base URL, API token, library.
+- `Settings > Direct sources` — knigavuhe enabled/disabled.
 
-Service config is kept under `./data/<service>` (gitignored); direct downloads and the test audiobook library live in
-`./tmp/downloads` and `./tmp/audiobooks` (gitignored). Cross-container URLs are `http://prowlarr:9696`,
-`http://qbittorrent:8081`, and `http://aria2:6800`; use `http://localhost:<port>` when ABR runs on the host instead of
-in compose. The aria2 `/downloads` volume maps to `./tmp/downloads` — point Audiobookshelf's library folder there so
-its scans pick up newly downloaded books.
-
-To exercise the tracker flow, configure the stack once with the setup script:
-
-```bash
-python3 scripts/setup_local_stack.py
-```
-
-It reads the generated Prowlarr API key, sets a known qBittorrent password, adds The Pirate Bay to Prowlarr, adds the
-qBittorrent download client, and points ABR at Prowlarr with auto-download enabled. It logs in as `a`/`a`, which the
-compose stack initializes as the root account on first start (override `ABR_APP__INIT_ROOT_USERNAME`/
-`ABR_APP__INIT_ROOT_PASSWORD` before starting if you want different credentials); if an existing `./config` database
-already has a different account, set `ABR_USER`/`ABR_PASSWORD` for the script. To exercise the direct-download flow,
-configure the aria2 download client (`Settings > Download`) and enable knigavuhe (`Settings > Direct sources`).
+For local development without any of that, run the app directly (`just dev` / `uv run fastapi dev`) and configure the
+services you have; the direct-source search works with no other service running.
 
 # Tools
 

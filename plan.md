@@ -33,7 +33,7 @@ Decided with the owner (2026-11-03):
 ### Secondary decisions / notes
 
 5. **Decypharr**: the current ABR→Prowlarr→download-client flow needs a separate investigation for Decypharr compatibility. Tracked in §6 / Task T0.1.
-6. **Local test stack**: a docker compose profile for local testing is required (§8).
+6. **Deployment**: this repository ships **no** `docker-compose.yml` (owner decision, 2026-11-07). AudioBookRequestRu is one service inside the owner's external homelab stack (Prowlarr, torrent client, aria2, Audiobookshelf). See §8.
 7. **Metadata fallback**: if livelib scraping proves too fragile/complex, **knigavuhe can serve as the initial search/metadata source** as a fallback (and then livelib is used only for enrichment). Design the metadata layer to allow this swap.
 8. **Every phase has acceptance tests** before it is considered finished (§7).
 9. **Chaptarr**: Audible-ASIN-only, so removing Audible leaves it inert. **Confirmed (2026-11-03): remove the Chaptarr backend completely in Phase 1.**
@@ -255,11 +255,17 @@ Test results table (fill as phases complete):
 
 ---
 
-## 8. Local docker test stack
+## 8. Deployment / local test stack
 
-- `docker compose --profile local up` starts ABR + PostgreSQL + Prowlarr + qBittorrent + aria2 (and an optional `decypharr` service).
-- aria2 (direct/knigavuhe) added in Phase 3: RPC 6800, `./tmp/downloads`. Decypharr is optional and only relevant as Prowlarr's download client for tracker/debrid sources (**Path B**, see §6.1); add/configure the `decypharr` service when testing it.
-- Live knigavuhe/livelib integration tests run from the docker stack only when explicitly requested (external sites are not mocked).
+- **No compose file in this repo.** AudioBookRequestRu runs as one service in the owner's external arr stack, next to
+  Prowlarr, the torrent client (via Prowlarr), an aria2 JSON-RPC container for direct sources, and Audiobookshelf.
+- The removed `docker-compose.yml` (init/web/psql/prowlarr/qbittorrent/decypharr/aria2) and its
+  `scripts/setup_local_stack.py` helper were deleted in the P12 cleanup; `psql` in particular had no `profiles:` gate,
+  so a plain `docker compose up` could start an unwanted Postgres.
+- Local development: `just dev` (or `uv run alembic upgrade heads && uv run fastapi dev`) with `.env.local`; the
+  knigavuhe direct-source path needs no other service running.
+- Live knigavuhe/livelib integration checks are run manually from a configured instance; external sites are never
+  mocked in CI.
 
 ---
 
