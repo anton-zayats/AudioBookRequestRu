@@ -4,6 +4,7 @@
     search_results: list[ReleaseView],
     page: int,
     source: str = "both",
+    has_more: bool = False,
 #}
 
 <BaseLayout title="Search" user={{ user }}>
@@ -64,6 +65,7 @@
         </form>
         {% block book_results %}
             <div id="book-results" class="w-full overflow-x-auto">
+                {% if search_results %}
                 <table class="table table-zebra table-pin-rows min-w-200">
                     <thead>
                         <tr>
@@ -99,29 +101,32 @@
                         {% endfor %}
                     </tbody>
                 </table>
+                {% endif %}
             </div>
         {% endblock book_results %}
         {% if search_results or page > 0 %}
             <div class="join">
                 <button class="join-item btn"
-                        onclick="onPageChange('{{ page-1 }}')"
-                        {% if page.__eq__(0) %}disabled{% endif %}>
-                    «
+                        title="Previous page"
+                        onclick="onPageChange('{{ (page - 1) if page > 0 else 0 }}')"
+                        {% if page == 0 %}disabled{% endif %}>
+                    « Previous
                 </button>
-                <button class="join-item btn flex flex-col gap-0"
-                        onclick="onPageChange('{{ 0 }}')"
-                        {% if page.__eq__(0) %}disabled{% endif %}>
-                    Page {{ page+1 }}
-                    <span class="text-[0.5rem]">back to first</span>
-                </button>
-                <button class="join-item btn" onclick="onPageChange('{{ page+1 }}')">
-                    »
+                <span class="join-item btn btn-active pointer-events-none">Page {{ page + 1 }}</span>
+                <button class="join-item btn"
+                        title="Next page"
+                        onclick="onPageChange('{{ page + 1 }}')"
+                        {% if not has_more %}disabled{% endif %}>
+                    Next »
                 </button>
             </div>
         {% endif %}
         {% if not search_results %}
             <div class="pt-8 flex flex-col gap-1 items-center justify-center text-center max-w-[20rem]">
-                {% if search_term %}
+                {% if search_term and page > 0 %}
+                    <span class="text-xl font-semibold">No more results</span>
+                    <span class="text-sm">This page is past the end of the result list.</span>
+                {% elif search_term %}
                     <span class="text-xl font-semibold">No results found</span>
                     <span class="text-sm">No releases were found. Try a different title or
                         <a class="link" preload href="{{ base_url }}/search/manual">add a request manually</a>.</span>

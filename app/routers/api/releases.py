@@ -15,6 +15,7 @@ from app.internal.releases import (
     add_release_request,
     build_release_views,
     download_release,
+    is_sample_only,
     list_release_requests,
     remove_release_request,
     upsert_release,
@@ -56,6 +57,10 @@ async def add_request(
     user: Annotated[DetailedUser, Security(AnyAuth())],
 ) -> Release:
     release = upsert_release(session, body)
+    if is_sample_only(release):
+        raise HTTPException(
+            status_code=400, detail="Sample-only releases cannot be requested"
+        )
     add_release_request(session, release.id, user.username)
     session.refresh(release)
     return release

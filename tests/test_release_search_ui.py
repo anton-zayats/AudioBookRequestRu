@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 from app.internal.models import (
     BookMetadata,
     DirectSource,
+    DownloadJob,
     DownloadSource,
     Release,
     ReleaseRequest,
@@ -229,3 +230,126 @@ def test_requests_list_reports_download_state(
     listed = as_list(json_list(admin_client.get("/api/releases/requests")))
     assert len(listed) == 1
     assert as_dict(listed[0])["state"] == "sent"
+
+
+# -- UX fixes: sample handling, pagination, button state -------------------
+def _sample_source() -> DirectSource:
+    source = _direct(guid="https://knigavuhe.org/book/sample/")
+    source.indexer_flags = ["sample"]
+    return source
+
+
+def _next_button(html: str) -> str:
+    index = html.index('title="Next page"')
+    return html[index : html.index("</button>", index)]
+
+
+def test_sample_only_row_disables_both_actions(
+    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.api.search.search_releases", _fake_search([_sample_source()])
+    )
+    response = admin_client.get("/search", params={"q": "test book"})
+    assert response.status_code == 200, response.text
+    html = response.text
+
+    # Short badge, not "Sample only"
+    assert ">Sample<" in html.replace("\n", "").replace(" ", "")
+    assert "Sample only" not in html
+    assert 'hx-post="/search/hx-download/' in html
+    assert 'hx-post="/search/hx-toggle-request/' in html
+    assert html.count("disabled") >= 2
+
+
+def test_sample_only_release_cannot_be_bookmarked(
+    admin_client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.api.search.search_releases", _fake_search([_sample_source()])
+    )
+    assert admin_client.get("/search", params={"q": "test book"}).status_code == 200
+    release = db.exec(
+        select(Release).where(Release.guid == "https://knigavuhe.org/book/sample/")
+    ).first()
+    assert release is not None and release.id is not None
+
+    response = admin_client.post(f"/search/hx-toggle-request/{release.id}")
+    assert response.status_code == 200
+    assert "cannot be requested" in response.text
+    assert db.get(ReleaseRequest, (release.id, "root")) is None
+
+    api = admin_client.post(
+        "/api/releases/requests",
+        json=_sample_source().model_dump(mode="json"),
+    )
+    assert api.status_code == 400
+
+
+def test_search_row_has_no_requested_by_annotation(
+    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.api.search.search_releases", _fake_search([_direct()])
+    )
+    assert admin_client.get("/search", params={"q": "test book"}).status_code == 200
+
+    response = admin_client.get("/search", params={"q": "test book"})
+    assert response.status_code == 200
+    assert "Requested by" not in response.text
+
+
+def test_pagination_next_disabled_past_last_page(
+    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    many = [_torrent(guid=f"torrent:{i}", title=f"Book {i} mp3") for i in range(21)]
+
+    async def _search(*_args: object, **_kwargs: object) -> list[DownloadSource]:
+        # search_releases sees no pagination; the API slices the full list.
+        return many
+
+    monkeypatch.setattr("app.routers.api.search.search_releases", _search)
+
+    first = admin_client.get("/search", params={"q": "book"})
+    assert first.status_code == 200
+    assert "disabled" not in _next_button(first.text)
+
+    # The fake returns the whole list, so page 2 (21-40) is empty: next must
+    # be disabled and the empty state must say "No more results".
+    second = admin_client.get("/search", params={"q": "book", "page": 1})
+    assert second.status_code == 200
+    assert "disabled" in _next_button(second.text)
+    assert "No more results" in second.text
+
+
+def test_download_button_locks_while_downloading(
+    admin_client: TestClient,
+    aria2: MockServer,
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.api.search.search_releases", _fake_search([_direct()])
+    )
+    assert admin_client.get("/search", params={"q": "test book"}).status_code == 200
+    release = _release(db, "https://knigavuhe.org/book/1/")
+    assert release is not None and release.id is not None
+
+    started = admin_client.post(f"/search/hx-download/{release.id}")
+    assert started.status_code == 200
+    assert "Downloading" in started.text
+    assert 'hx-post="/search/hx-download/' in started.text
+    assert "disabled" in started.text
+
+    # Once the job is terminal the button offers a redownload.
+    job = db.exec(
+        select(DownloadJob).where(DownloadJob.release_id == release.id)
+    ).first()
+    assert job is not None
+    job.status = "completed"
+    db.add(job)
+    db.commit()
+
+    refreshed = admin_client.get("/search", params={"q": "test book"})
+    assert refreshed.status_code == 200
+    assert "Redownload" in refreshed.text

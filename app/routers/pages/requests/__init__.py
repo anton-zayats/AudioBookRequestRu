@@ -28,6 +28,7 @@ from app.internal.releases import (
     download_release,
     group_release_views,
     list_release_requests,
+    refresh_download_states,
     refresh_release,
     remove_release_request,
     remove_release_request_all,
@@ -161,6 +162,43 @@ async def remove_manual(
         user=admin_user,
         results=get_all_manual_requests(session, admin_user),
     )
+
+
+@router.post("/hx-refresh-status")
+async def refresh_status(
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[DetailedUser, Security(ABRAuth())],
+    client_session: Annotated[ClientSession, Depends(get_connection)],
+    background_task: BackgroundTasks,
+):
+    """Poll the download client for the bookmarked releases' in-flight jobs."""
+    username = None if user.is_admin() else user.username
+    bookmarks = list_release_requests(session, username)
+    result = await refresh_download_states(
+        session,
+        client_session,
+        [bookmark.release.id for bookmark in bookmarks],
+    )
+
+    if result.error:
+        return await _content_response(
+            session, client_session, user, result.error, "error"
+        )
+
+    if result.updated and abs_config.is_valid(session):
+        background_task.add_task(background_abs_trigger_scan)
+
+    if result.updated:
+        message = (
+            f"Updated {result.updated} download{'s' if result.updated != 1 else ''}"
+        )
+    elif result.pending_torrents:
+        message = "Torrent downloads are not tracked yet — check your download client"
+    elif result.skipped:
+        message = "Could not read the download status from the client"
+    else:
+        message = "No downloads in progress"
+    return await _content_response(session, client_session, user, message)
 
 
 @router.post("/hx-download/{release_id}")

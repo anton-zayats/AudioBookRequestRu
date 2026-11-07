@@ -8,6 +8,7 @@ from httpx2 import Response
 from sqlmodel import Session, select
 
 from app.internal.models import (
+    DownloadJob,
     DownloadSource,
     Release,
     ReleaseRequest,
@@ -139,3 +140,66 @@ def test_requests_download_reports_client_error(admin_client: TestClient) -> Non
     response = admin_client.post(f"/requests/hx-download/{release_id}")
     assert response.status_code == 200
     assert "No downloadable files" in _toast(response)
+
+
+# -- download status refresh ----------------------------------------------
+def _job(db: Session, release_id: int) -> DownloadJob:
+    job = db.exec(
+        select(DownloadJob).where(DownloadJob.release_id == release_id)
+    ).first()
+    assert job is not None
+    return job
+
+
+def test_refresh_status_marks_completed(
+    admin_client: TestClient, aria2: MockServer, db: Session
+) -> None:
+    release_id = _bookmark(admin_client, direct_source())
+    assert admin_client.post(f"/requests/hx-download/{release_id}").status_code == 200
+    assert _job(db, release_id).status == "downloading"
+
+    # The download button is locked while a job is in flight.
+    page = admin_client.get("/requests")
+    assert "Downloading" in page.text
+    assert "disabled" in page.text
+
+    response = admin_client.post("/requests/hx-refresh-status")
+    assert response.status_code == 200, response.text
+    assert "Updated 1 download" in _toast(response)
+    assert _job(db, release_id).status == "completed"
+    assert "Redownload" in response.text
+
+
+def test_refresh_status_marks_failed(
+    admin_client: TestClient, aria2: MockServer, db: Session
+) -> None:
+    release_id = _bookmark(admin_client, direct_source())
+    assert admin_client.post(f"/requests/hx-download/{release_id}").status_code == 200
+
+    aria2.state["aria2_status"] = "error"
+    response = admin_client.post("/requests/hx-refresh-status")
+    assert response.status_code == 200, response.text
+    assert "Updated 1 download" in _toast(response)
+    job = _job(db, release_id)
+    assert job.status == "failed"
+    assert job.error
+    assert "Download failed" in response.text
+
+
+def test_refresh_status_reports_untracked_torrents(
+    admin_client: TestClient, prowlarr: MockServer, db: Session
+) -> None:
+    release_id = _bookmark(admin_client, torrent_source(guid="torrent:1"))
+    assert admin_client.post(f"/requests/hx-download/{release_id}").status_code == 200
+
+    response = admin_client.post("/requests/hx-refresh-status")
+    assert response.status_code == 200, response.text
+    assert "not tracked yet" in _toast(response)
+    assert _job(db, release_id).status == "downloading"
+
+
+def test_refresh_status_without_jobs(admin_client: TestClient) -> None:
+    _bookmark(admin_client, direct_source())
+    response = admin_client.post("/requests/hx-refresh-status")
+    assert response.status_code == 200
+    assert "No downloads in progress" in _toast(response)

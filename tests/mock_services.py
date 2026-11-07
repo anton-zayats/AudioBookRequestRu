@@ -52,6 +52,7 @@ class MockState(TypedDict):
     abs_libraries: list[dict[str, object]]
     oidc_userinfo: dict[str, object]
     aria2_params: list[dict[str, object]]
+    aria2_status: str
 
 
 DEFAULT_INDEXERS: list[dict[str, object]] = [
@@ -200,6 +201,7 @@ def default_state(base_url: str) -> MockState:
             "groups": ["admin"],
         },
         "aria2_params": [],
+        "aria2_status": "complete",
     }
 
 
@@ -385,12 +387,12 @@ def install_aria2(mock: MockServer, prefix: str = "/jsonrpc") -> None:
 
         if method == "aria2.tellStatus":
             gid = params[1] if len(params) > 1 else "unknown"
+            status = mock.state["aria2_status"]
+            result: dict[str, object] = {"gid": gid, "status": status}
+            if status in {"error", "removed"}:
+                result["errorMessage"] = "Download aborted"
             return web.json_response(
-                {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": {"gid": gid, "status": "complete"},
-                }
+                {"jsonrpc": "2.0", "id": request_id, "result": result}
             )
 
         return web.json_response(

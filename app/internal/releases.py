@@ -14,7 +14,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import urlparse
 
 from aiohttp import ClientSession
@@ -622,3 +622,118 @@ def popular_releases(
         ReleasePopularity(release=release, request_count=int(count))
         for release, count, _ in rows
     ]
+
+
+def is_sample_only(release: Release) -> bool:
+    """Whether the release is a trial/sample and therefore not requestable."""
+    return "sample" in release.indexer_flags
+
+
+class DownloadStateRefresh(BaseModel):
+    """Outcome of polling a download client for in-flight jobs."""
+
+    updated: int = 0
+    completed: int = 0
+    failed: int = 0
+    pending_torrents: int = 0
+    skipped: int = 0
+    error: str | None = None
+
+
+#: aria2 `tellStatus` values that mean the download finished or died.
+_ARIA2_COMPLETE = "complete"
+_ARIA2_FAILED = frozenset({"error", "removed"})
+
+
+async def refresh_download_states(
+    session: Session,
+    client_session: ClientSession,
+    release_ids: list[int],
+) -> DownloadStateRefresh:
+    """Poll aria2 for the in-flight jobs of the given releases.
+
+    Torrent jobs are dispatched through Prowlarr, which exposes no queue for
+    app grabs; they are counted in ``pending_torrents`` and left untouched
+    until a download-client integration exists (P9).
+    """
+    result = DownloadStateRefresh()
+    if not release_ids:
+        return result
+
+    jobs = session.exec(
+        select(DownloadJob).where(
+            col(DownloadJob.release_id).in_(release_ids),
+            DownloadJob.status == "downloading",
+        )
+    ).all()
+    if not jobs:
+        return result
+
+    result.pending_torrents = sum(1 for job in jobs if not _is_aria2_job(job))
+    aria2_jobs = [job for job in jobs if _is_aria2_job(job)]
+    if not aria2_jobs:
+        return result
+
+    try:
+        download_client_config.raise_if_invalid(session)
+    except DownloadClientMisconfigured as exc:
+        result.error = str(exc)
+        return result
+
+    client = Aria2Client(
+        host=download_client_config.get_host(session) or "",
+        port=download_client_config.get_port(session),
+        secret=download_client_config.get_rpc_secret(session),
+        client_session=client_session,
+    )
+
+    for job in aria2_jobs:
+        gids = [
+            gid.strip() for gid in (job.external_id or "").split(",") if gid.strip()
+        ]
+        if not gids:
+            result.skipped += 1
+            continue
+
+        statuses: list[str] = []
+        errors: list[str] = []
+        failed_lookup = False
+        for gid in gids:
+            try:
+                status = await client.status(gid)
+            except Exception as exc:
+                logger.debug("aria2 status lookup failed", gid=gid, error=str(exc))
+                failed_lookup = True
+                break
+            if not status or not isinstance(status.get("status"), str):
+                failed_lookup = True
+                break
+            statuses.append(cast(str, status["status"]))
+            message = status.get("errorMessage")
+            if isinstance(message, str) and message:
+                errors.append(message)
+
+        if failed_lookup or not statuses:
+            result.skipped += 1
+            continue
+
+        if all(status == _ARIA2_COMPLETE for status in statuses):
+            job.status = "completed"
+            result.completed += 1
+            result.updated += 1
+        elif any(status in _ARIA2_FAILED for status in statuses):
+            job.status = "failed"
+            job.error = errors[0] if errors else "Download failed in aria2"
+            result.failed += 1
+            result.updated += 1
+        else:
+            continue
+
+        session.add(job)
+
+    session.commit()
+    return result
+
+
+def _is_aria2_job(job: DownloadJob) -> bool:
+    return job.client == "aria2" and bool(job.external_id)

@@ -13,6 +13,7 @@ from app.internal.releases import (
     add_release_request,
     build_release_views,
     download_release,
+    is_sample_only,
     remove_release_request,
     upsert_release,
 )
@@ -80,15 +81,18 @@ async def read_search(
     page: int = 0,
 ):
     try:
+        # Ask for one extra result to know whether a next page exists.
         results = await search_books(
             session=session,
             user=user,
             client_session=client_session,
             query=query,
             source=source,
-            num_results=num_results,
+            num_results=num_results + 1,
             page=page,
         )
+        has_more = len(results) > num_results
+        results = results[:num_results]
 
         views = await _persist_and_build_views(
             session, client_session, results, user.username
@@ -101,6 +105,7 @@ async def read_search(
             search_results=views,
             page=page,
             source=source,
+            has_more=has_more,
         )
 
     except Exception as e:
@@ -152,6 +157,9 @@ async def toggle_request_row(
     release = session.get(Release, release_id)
     if release is None:
         raise ToastException("This release is no longer available")
+
+    if is_sample_only(release):
+        raise ToastException("Sample-only releases cannot be requested")
 
     if remove_release_request(session, release_id, user.username):
         message = "Removed from requests"

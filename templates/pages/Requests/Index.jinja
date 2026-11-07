@@ -6,13 +6,24 @@
 
 <BaseLayout title="Requests" user={{ user }}>
 <div class="w-screen flex flex-col gap-2 p-2 md:p-4 lg:p-8">
-    <div class="flex flex-col gap-1">
-        <h1 class="text-3xl font-bold">
-            Requests
-        </h1>
-        <span class="text-sm opacity-70">
-            Releases you want to download later. Add them from the search page.
-        </span>
+    <div class="flex flex-wrap items-start justify-between gap-2">
+        <div class="flex flex-col gap-1">
+            <h1 class="text-3xl font-bold">
+                Requests
+            </h1>
+            <span class="text-sm opacity-70">
+                Releases you want to download later. Add them from the search page.
+            </span>
+        </div>
+        <button class="btn btn-sm"
+                title="Ask the download client for the current status of in-flight downloads"
+                hx-post="{{ base_url }}/requests/hx-refresh-status"
+                hx-target="#requests-content"
+                hx-swap="outerHTML"
+                hx-disabled-elt="this">
+            <icons.Refresh />
+            Refresh status
+        </button>
     </div>
     <Requests.Tablist page="releases" counts={{ counts }} />
     <Requests.Content user={{ user }} groups={{ groups }} counts={{ counts }} />

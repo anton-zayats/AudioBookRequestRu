@@ -3,7 +3,10 @@
     user: DetailedUser,
 #}
 {% set release = view.release %}
+{% set sample = "sample" in release.indexer_flags %}
+{% set downloading = view.state == "sent" %}
 {% set no_files = release.protocol == "direct" and not release.download_urls %}
+{% set redownload = view.state == "completed" or view.state == "failed" %}
 <tr id="request-row-{{ release.id }}" class="text-xs lg:text-sm">
     <td>
         {% if release.info_url %}
@@ -32,22 +35,28 @@
     <td>
         <div class="flex flex-col gap-1 items-start">
             <span class="badge badge-sm {{ view.status_tone }}">{{ view.status_label }}</span>
-            {% if "sample" in release.indexer_flags %}
-                <span class="badge badge-sm badge-warning">Sample only</span>
+            {% if sample %}
+                <span class="badge badge-sm badge-warning">Sample</span>
             {% endif %}
         </div>
     </td>
     <td>
         <div class="flex flex-wrap gap-1 justify-end">
             <button class="btn btn-sm btn-primary"
-                    title="{% if no_files %}This release has no downloadable files{% else %}Send this release to the download client{% endif %}"
+                    title="{% if no_files %}This release has no downloadable files{% elif sample %}Sample-only releases cannot be downloaded{% elif downloading %}Download in progress{% elif redownload %}Download this release again{% else %}Send this release to the download client{% endif %}"
                     hx-post="{{ base_url }}/requests/hx-download/{{ release.id }}"
                     hx-target="#requests-content"
                     hx-swap="outerHTML"
                     hx-disabled-elt="this"
-                    {% if no_files %}disabled{% endif %}>
+                    {% if no_files or sample or downloading %}disabled{% endif %}>
                 <icons.Download />
-                Download
+                {% if downloading %}
+                    Downloading
+                {% elif redownload %}
+                    Redownload
+                {% else %}
+                    Download
+                {% endif %}
             </button>
             <button class="btn btn-sm"
                     title="Re-fetch this release from its source (fresh download links)"
@@ -55,7 +64,7 @@
                     hx-target="#requests-content"
                     hx-swap="outerHTML"
                     hx-disabled-elt="this">
-                <icons.TestPipe />
+                <icons.Refresh />
                 Refresh
             </button>
             <button class="btn btn-sm"
