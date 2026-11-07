@@ -10,6 +10,7 @@ from app.internal.downloads.config import (
     DownloadClientMisconfigured,
     download_client_config,
 )
+from app.internal.downloads.qbittorrent import QbittorrentClient, TorrentClientError
 from app.internal.models import GroupEnum
 from app.internal.ranking.quality import IndexerFlag, QualityRange, quality_config
 from app.routers.api.settings.download import (
@@ -44,6 +45,13 @@ def read_download(
     download_client_port = download_client_config.get_port(session)
     download_client_rpc_secret = download_client_config.get_rpc_secret(session)
     download_client_dir = download_client_config.get_dir(session)
+    torrent_client_url = download_client_config.get_torrent_client_url(session)
+    torrent_client_username = download_client_config.get_torrent_client_username(
+        session
+    )
+    torrent_client_password_set = bool(
+        download_client_config.get_torrent_client_password(session)
+    )
 
     return catalog_response(
         "Settings.Download.Index",
@@ -62,6 +70,9 @@ def read_download(
         download_client_port=download_client_port,
         download_client_rpc_secret=download_client_rpc_secret,
         download_client_dir=download_client_dir,
+        torrent_client_url=torrent_client_url,
+        torrent_client_username=torrent_client_username,
+        torrent_client_password_set=torrent_client_password_set,
     )
 
 
@@ -254,4 +265,82 @@ async def test_download_client(
         download_client_port=download_client_config.get_port(session),
         download_client_rpc_secret=download_client_config.get_rpc_secret(session),
         download_client_dir=download_client_config.get_dir(session),
+    )
+
+
+def _torrent_client_template_kwargs(session: Session) -> dict[str, object]:
+    return {
+        "torrent_client_url": download_client_config.get_torrent_client_url(session),
+        "torrent_client_username": download_client_config.get_torrent_client_username(
+            session
+        ),
+        "torrent_client_password_set": bool(
+            download_client_config.get_torrent_client_password(session)
+        ),
+    }
+
+
+@router.post("/hx-torrent-client")
+def update_torrent_client(
+    torrent_client_url: Annotated[str, Form()],
+    session: Annotated[Session, Depends(get_session)],
+    admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+    torrent_client_username: Annotated[str, Form()] = "",
+    torrent_client_password: Annotated[str, Form()] = "",
+):
+    _ = admin_user
+    download_client_config.set_torrent_client_url(session, torrent_client_url)
+    download_client_config.set_torrent_client_username(session, torrent_client_username)
+    if torrent_client_password:
+        download_client_config.set_torrent_client_password(
+            session, torrent_client_password
+        )
+
+    return catalog_response_toast(
+        "Settings.Download.TorrentClient",
+        "Torrent client updated",
+        "success",
+        **_torrent_client_template_kwargs(session),  # pyright: ignore[reportArgumentType]
+    )
+
+
+@router.post("/hx-torrent-client-test")
+async def test_torrent_client(
+    session: Annotated[Session, Depends(get_session)],
+    client_session: Annotated[ClientSession, Depends(get_connection)],
+    admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    _ = admin_user
+    url = download_client_config.get_torrent_client_url(session)
+    if not url:
+        return catalog_response_toast(
+            "Settings.Download.TorrentClient",
+            "Torrent client URL not set",
+            "error",
+            **_torrent_client_template_kwargs(session),  # pyright: ignore[reportArgumentType]
+        )
+
+    client = QbittorrentClient(
+        base_url=url,
+        username=download_client_config.get_torrent_client_username(session),
+        password=download_client_config.get_torrent_client_password(session),
+        client_session=client_session,
+    )
+    try:
+        ok = await client.test_connection()
+    except TorrentClientError as e:
+        return catalog_response_toast(
+            "Settings.Download.TorrentClient",
+            e.message,
+            "error",
+            **_torrent_client_template_kwargs(session),  # pyright: ignore[reportArgumentType]
+        )
+
+    return catalog_response_toast(
+        "Settings.Download.TorrentClient",
+        "Torrent client connection successful"
+        if ok
+        else "Torrent client connection failed",
+        "success" if ok else "error",
+        **_torrent_client_template_kwargs(session),  # pyright: ignore[reportArgumentType]
     )

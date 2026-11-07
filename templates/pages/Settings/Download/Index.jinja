@@ -14,6 +14,9 @@
     download_client_port: int,
     download_client_rpc_secret: str | None,
     download_client_dir: str | None,
+    torrent_client_url: str | None = None,
+    torrent_client_username: str = "",
+    torrent_client_password_set: bool = False,
 #}
 
 <SettingsLayout user={{ user }} page="download" title="Settings - Download">
@@ -60,6 +63,8 @@
     <Settings.Download.IndexerFlags indexer_flags={{ indexer_flags }} />
     <hr class="my-4 border-base-200" />
     <Settings.Download.Client download_client_host={{ download_client_host }} download_client_port={{ download_client_port }} download_client_rpc_secret={{ download_client_rpc_secret }} download_client_dir={{ download_client_dir }} />
+    <hr class="my-4 border-base-200" />
+    <Settings.Download.TorrentClient torrent_client_url={{ torrent_client_url }} torrent_client_username={{ torrent_client_username }} torrent_client_password_set={{ torrent_client_password_set }} />
     <hr class="my-4 border-base-200" />
     <div class="flex flex-col gap-2">
         <h2 class="text-lg text-error">

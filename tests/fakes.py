@@ -119,7 +119,7 @@ def torrent_source(
         info_url=None,
         indexer_flags=[],
         download_url=None,
-        magnet_url=None,
+        magnet_url="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
         book_metadata=BookMetadata(
             title=None, authors=authors or [], narrators=["Reader A"]
         ),

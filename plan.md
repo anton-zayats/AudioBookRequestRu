@@ -191,7 +191,12 @@ source filter (`tracker | direct | both`). Livelib is **not** in this path.
 - [ ] Rework the now-inert `Auto Download` setting for the release flow (currently only affects the manual-request note).
 
 ### Phase 8 — Download lifecycle (P9, NEXT)
-- [~] `DownloadJob` + status poller: **aria2 `tellStatus` done** via the requests page's "Refresh status" action (completed/failed/skipped, ABS scan on completion); **torrent jobs are still untracked** — needs a Decypharr/qBittorrent client integration (their UI shows `Error`, ABR keeps showing "Sent to download").
+- [x] `DownloadJob` + status poller via the Requests page's **Refresh status** action:
+  - **direct (aria2)**: `tellStatus` per GID → completed/failed, ABS scan on completion;
+  - **torrents**: ABR computes the infohash before the Prowlarr grab (Prowlarr never returns it) and queries a
+    **qBittorrent-compatible client** (works with Decypharr; `Settings > Download > Torrent client`) →
+    completed / failed / still downloading.
+  - background polling (scheduler) is still future work — status is on-demand today.
 - [ ] Completion-only status: mark a release completed only when files finish; failure → failed + notification + Retry/Repair.
 - [ ] Move-to-library on completion: staging `/downloads` → library `/audiobooks`; ABS watches `/audiobooks` only.
 - [ ] Retry/backoff for transient failures; knigavuhe URL refresh at download time.

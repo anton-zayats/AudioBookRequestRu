@@ -192,8 +192,13 @@ async def refresh_status(
         message = (
             f"Updated {result.updated} download{'s' if result.updated != 1 else ''}"
         )
-    elif result.pending_torrents:
-        message = "Torrent downloads are not tracked yet — check your download client"
+    elif result.pending_torrents and not result.torrent_client_configured:
+        message = (
+            "Torrent downloads are not tracked yet — configure the torrent client "
+            "in Settings > Download"
+        )
+    elif result.pending:
+        message = f"{result.pending} download{'s' if result.pending != 1 else ''} still in progress"
     elif result.skipped:
         message = "Could not read the download status from the client"
     else:

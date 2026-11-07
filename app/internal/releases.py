@@ -32,6 +32,7 @@ from app.internal.downloads.config import (
     DownloadClientMisconfigured,
     download_client_config,
 )
+from app.internal.downloads.qbittorrent import QbittorrentClient, TorrentClientError
 from app.internal.models import (
     DownloadJob,
     DownloadSource,
@@ -42,7 +43,7 @@ from app.internal.models import (
     UsenetSource,
 )
 from app.internal.notifications import send_all_notifications
-from app.internal.prowlarr.prowlarr import start_download
+from app.internal.prowlarr.prowlarr import start_download, torrent_info_hash
 from app.util.log import logger
 from app.util.release_title import (
     clean_release_title,
@@ -530,12 +531,21 @@ async def download_release(
             job.external_id = ",".join(gids)
         else:
             # Prowlarr grabs send their own success/failure notifications.
+            # The infohash is computed first: Prowlarr never returns it, but the
+            # download client's queue is keyed by it (status tracking).
+            info_hash = await torrent_info_hash(
+                client_session,
+                magnet_url=release.magnet_url,
+                download_url=release.download_url,
+            )
             await start_download(
                 session=session,
                 client_session=client_session,
                 guid=release.guid,
                 indexer_id=release.indexer_id,
             )
+            if info_hash:
+                job.external_id = info_hash
         session.add(job)
         session.commit()
 
@@ -636,7 +646,9 @@ class DownloadStateRefresh(BaseModel):
     completed: int = 0
     failed: int = 0
     pending_torrents: int = 0
+    pending: int = 0
     skipped: int = 0
+    torrent_client_configured: bool = False
     error: str | None = None
 
 
@@ -669,14 +681,20 @@ async def refresh_download_states(
     if not jobs:
         return result
 
-    result.pending_torrents = sum(1 for job in jobs if not _is_aria2_job(job))
+    torrent_jobs = [job for job in jobs if _is_torrent_job(job)]
     aria2_jobs = [job for job in jobs if _is_aria2_job(job)]
+
+    if torrent_jobs:
+        await _refresh_torrent_jobs(session, client_session, torrent_jobs, result)
     if not aria2_jobs:
+        session.commit()
         return result
 
     try:
         download_client_config.raise_if_invalid(session)
     except DownloadClientMisconfigured as exc:
+        # Keep whatever the torrent client already reported.
+        session.commit()
         result.error = str(exc)
         return result
 
@@ -727,6 +745,7 @@ async def refresh_download_states(
             result.failed += 1
             result.updated += 1
         else:
+            result.pending += 1
             continue
 
         session.add(job)
@@ -737,3 +756,57 @@ async def refresh_download_states(
 
 def _is_aria2_job(job: DownloadJob) -> bool:
     return job.client == "aria2" and bool(job.external_id)
+
+
+def _is_torrent_job(job: DownloadJob) -> bool:
+    return job.client == "prowlarr" and bool(job.external_id)
+
+
+async def _refresh_torrent_jobs(
+    session: Session,
+    client_session: ClientSession,
+    jobs: list[DownloadJob],
+    result: DownloadStateRefresh,
+) -> None:
+    """Look the grabbed torrents up in the qBittorrent-compatible client."""
+    if not download_client_config.is_torrent_client_configured(session):
+        result.pending_torrents += len(jobs)
+        return
+
+    result.torrent_client_configured = True
+    client = QbittorrentClient(
+        base_url=download_client_config.get_torrent_client_url(session) or "",
+        username=download_client_config.get_torrent_client_username(session),
+        password=download_client_config.get_torrent_client_password(session),
+        client_session=client_session,
+    )
+    hashes = [job.external_id for job in jobs if job.external_id]
+    try:
+        statuses = await client.statuses(hashes)
+    except TorrentClientError as exc:
+        result.error = exc.message
+        return
+
+    for job in jobs:
+        info_hash = (job.external_id or "").lower()
+        status = statuses.get(info_hash)
+        if status is None:
+            result.skipped += 1
+            continue
+        job_state = status.job_state
+        if job_state == "completed":
+            job.status = "completed"
+            result.completed += 1
+            result.updated += 1
+        elif job_state == "failed":
+            job.status = "failed"
+            job.error = f"Download client reports {status.state}"
+            result.failed += 1
+            result.updated += 1
+        elif job_state == "downloading":
+            result.pending += 1
+        else:
+            result.skipped += 1
+            continue
+        session.add(job)
+    session.commit()

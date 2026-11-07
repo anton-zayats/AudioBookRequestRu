@@ -109,6 +109,19 @@ download clients for torrent/usenet results.
    1. The ranking sliders determine the order of releases retrieved from Prowlarr.
    2. Indexer flags allow you to add priorities to certain sources like freeleeches.
 
+#### Torrent status tracking (optional)
+
+Torrent releases are grabbed through Prowlarr, which does not tell ABR what happened afterwards. Point ABR at a
+**qBittorrent-compatible** API and the Requests page can report whether a torrent finished or errored:
+
+1. `Settings > Download > Torrent client` — base URL (e.g. `http://decypharr:8282`), username, password.
+   Decypharr works here: use its API token as the username.
+2. Press **Test connection**, then use **Refresh status** on the Requests page.
+
+ABR computes the torrent infohash before grabbing (from the magnet link or `.torrent` URL), stores it on the download
+job, and looks it up in the client's queue: finished torrents become *Downloaded*, errored ones *Download failed*.
+Leave the field empty to disable torrent status tracking.
+
 #### Torrent downloads via Decypharr (optional)
 
 To route tracker (torrent) results through a debrid provider, point Prowlarr at

@@ -1,0 +1,62 @@
+{#def
+    torrent_client_url: str | None,
+    torrent_client_username: str | None,
+    torrent_client_password_set: bool,
+#}
+
+<div id="torrent-client" class="flex flex-col gap-2">
+    <h2 class="text-lg">
+        Torrent client (optional)
+    </h2>
+    <p class="text-xs opacity-60">
+        Used to read back the status of torrent downloads that were grabbed through Prowlarr
+        (completion and errors). Any qBittorrent-compatible API works, including Decypharr —
+        for Decypharr, use its API token as the username with any password.
+        Leave the URL empty to disable status tracking for torrents.
+    </p>
+    <form class="flex flex-col gap-2"
+          hx-post="{{ base_url }}/settings/download/hx-torrent-client"
+          hx-target="#torrent-client"
+          hx-swap="outerHTML"
+          hx-disabled-elt="#torrent-client-save, #torrent-client-test">
+        <label for="torrent-client-url">
+            Base URL
+        </label>
+        <input id="torrent-client-url"
+               name="torrent_client_url"
+               type="text"
+               value="{{ torrent_client_url or '' }}"
+               placeholder="http://decypharr:8282"
+               class="input w-full" />
+        <label for="torrent-client-username" class="pt-2">
+            Username
+        </label>
+        <input id="torrent-client-username"
+               name="torrent_client_username"
+               type="text"
+               value="{{ torrent_client_username or '' }}"
+               placeholder="admin (or the Decypharr API token)"
+               class="input w-full" />
+        <label for="torrent-client-password" class="pt-2">
+            Password
+        </label>
+        <input id="torrent-client-password"
+               name="torrent_client_password"
+               type="password"
+               {% if torrent_client_password_set %}placeholder="●●●●●●●●●●●●●●●●●"{% endif %}
+               class="input w-full" />
+        <div class="flex gap-2 pt-2">
+            <button id="torrent-client-save" type="submit" class="btn btn-primary">
+                Save
+            </button>
+            <button id="torrent-client-test"
+                    type="button"
+                    class="btn"
+                    hx-post="{{ base_url }}/settings/download/hx-torrent-client-test"
+                    hx-target="#torrent-client"
+                    hx-swap="outerHTML">
+                Test connection
+            </button>
+        </div>
+    </form>
+</div>

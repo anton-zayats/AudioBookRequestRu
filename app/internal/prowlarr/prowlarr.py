@@ -87,6 +87,28 @@ async def _get_torrent_info_hash(
     return None
 
 
+async def torrent_info_hash(
+    client_session: ClientSession,
+    *,
+    magnet_url: str | None = None,
+    download_url: str | None = None,
+) -> str | None:
+    """Resolve a torrent's infohash from a magnet link or a ``.torrent`` URL.
+
+    ABR never receives the hash back from Prowlarr, so it computes it before the
+    grab and stores it on the download job for status tracking.
+    """
+    if magnet_url:
+        info_hash = _info_hash_from_magnet(magnet_url)
+        if info_hash:
+            return info_hash.lower()
+    if download_url:
+        info_hash = await _get_torrent_info_hash(client_session, download_url)
+        if info_hash:
+            return info_hash.lower()
+    return None
+
+
 async def start_download(
     *,
     session: Session,
@@ -148,22 +170,14 @@ async def start_download(
 
         # Find additional metadata/replacements to pass along notifications
         additional_replacements: dict[str, str] = {}
-        if (
-            prowlarr_source
-            and prowlarr_source.download_url
-            and prowlarr_source.protocol == "torrent"
-            and (
-                info_hash := await _get_torrent_info_hash(
-                    client_session, prowlarr_source.download_url
-                )
+        if prowlarr_source and prowlarr_source.protocol == "torrent":
+            info_hash = await torrent_info_hash(
+                client_session,
+                magnet_url=prowlarr_source.magnet_url,
+                download_url=prowlarr_source.download_url,
             )
-        ) or (
-            prowlarr_source
-            and prowlarr_source.magnet_url
-            and prowlarr_source.protocol == "torrent"
-            and (info_hash := _info_hash_from_magnet(prowlarr_source.magnet_url))
-        ):
-            additional_replacements["torrentInfoHash"] = info_hash
+            if info_hash:
+                additional_replacements["torrentInfoHash"] = info_hash
 
         if prowlarr_source:
             additional_replacements["sourceSizeMB"] = str(prowlarr_source.size_MB)

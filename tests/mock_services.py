@@ -53,6 +53,9 @@ class MockState(TypedDict):
     oidc_userinfo: dict[str, object]
     aria2_params: list[dict[str, object]]
     aria2_status: str
+    qbittorrent_state: str
+    qbittorrent_states: dict[str, str]
+    qbittorrent_login_status: int
 
 
 DEFAULT_INDEXERS: list[dict[str, object]] = [
@@ -202,6 +205,9 @@ def default_state(base_url: str) -> MockState:
         },
         "aria2_params": [],
         "aria2_status": "complete",
+        "qbittorrent_state": "uploading",
+        "qbittorrent_states": {},
+        "qbittorrent_login_status": 200,
     }
 
 
@@ -311,6 +317,41 @@ def install_audiobookshelf(mock: MockServer, prefix: str = "/abs") -> None:
     mock.add("GET", f"{prefix}/api/libraries/{{id}}/items", items)
     mock.add("GET", f"{prefix}/api/libraries/{{id}}/search", search)
     mock.add("GET", f"{prefix}/api/items/{{id}}/cover", cover)
+
+
+def install_qbittorrent(mock: MockServer, prefix: str = "/qbittorrent") -> None:
+    """qBittorrent-compatible API surface (also used by Decypharr)."""
+
+    async def login(request: web.Request) -> web.Response:
+        if mock.state["qbittorrent_login_status"] >= 400:
+            return web.Response(status=mock.state["qbittorrent_login_status"])
+        response = web.Response(text="Ok.")
+        response.set_cookie("SID", "mock-sid")
+        return response
+
+    async def version(_: web.Request) -> web.Response:
+        return web.Response(text="v5.0.0")
+
+    async def torrents_info(request: web.Request) -> web.Response:
+        raw = request.query.get("hashes", "")
+        hashes = [value for value in raw.split("|") if value]
+        overrides = mock.state["qbittorrent_states"]
+        entries: list[dict[str, object]] = []
+        for info_hash in hashes:
+            state = overrides.get(info_hash.lower(), mock.state["qbittorrent_state"])
+            entries.append(
+                {
+                    "hash": info_hash,
+                    "name": "mock.torrent",
+                    "state": state,
+                    "progress": 1.0 if state in {"uploading", "pausedUP"} else 0.5,
+                }
+            )
+        return web.json_response(entries)
+
+    mock.add("POST", f"{prefix}/api/v2/auth/login", login)
+    mock.add("GET", f"{prefix}/api/v2/app/version", version)
+    mock.add("GET", f"{prefix}/api/v2/torrents/info", torrents_info)
 
 
 def install_oidc(mock: MockServer, prefix: str = "/oidc") -> None:

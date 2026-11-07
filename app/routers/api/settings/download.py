@@ -11,6 +11,7 @@ from app.internal.downloads.config import (
     DownloadClientMisconfigured,
     download_client_config,
 )
+from app.internal.downloads.qbittorrent import QbittorrentClient, TorrentClientError
 from app.internal.models import GroupEnum
 from app.internal.ranking.quality import IndexerFlag, QualityRange, quality_config
 from app.util.connection import get_connection
@@ -125,6 +126,77 @@ def update_download_client_settings(
 
 class DownloadClientTestResponse(BaseModel):
     ok: bool
+
+
+class TorrentClientSettings(BaseModel):
+    torrent_client_url: str
+    torrent_client_username: str
+    torrent_client_password_set: bool
+
+
+class UpdateTorrentClientSettings(BaseModel):
+    torrent_client_url: str
+    torrent_client_username: str
+    torrent_client_password: str | None = None
+
+
+@router.get("/torrent-client", response_model=TorrentClientSettings)
+def get_torrent_client_settings(
+    session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.admin))],
+):
+    return TorrentClientSettings(
+        torrent_client_url=download_client_config.get_torrent_client_url(session) or "",
+        torrent_client_username=download_client_config.get_torrent_client_username(
+            session
+        ),
+        torrent_client_password_set=bool(
+            download_client_config.get_torrent_client_password(session)
+        ),
+    )
+
+
+@router.put("/torrent-client", status_code=204)
+def update_torrent_client_settings(
+    body: UpdateTorrentClientSettings,
+    session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.admin))],
+):
+    download_client_config.set_torrent_client_url(session, body.torrent_client_url)
+    download_client_config.set_torrent_client_username(
+        session, body.torrent_client_username
+    )
+    if body.torrent_client_password is not None:
+        download_client_config.set_torrent_client_password(
+            session, body.torrent_client_password
+        )
+    return Response(status_code=204)
+
+
+@router.post("/torrent-client/test", response_model=DownloadClientTestResponse)
+async def test_torrent_client_connection(
+    session: Annotated[Session, Depends(get_session)],
+    client_session: Annotated[ClientSession, Depends(get_connection)],
+    _: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.admin))],
+):
+    url = download_client_config.get_torrent_client_url(session)
+    if not url:
+        raise HTTPException(status_code=400, detail="Torrent client URL not set")
+
+    client = QbittorrentClient(
+        base_url=url,
+        username=download_client_config.get_torrent_client_username(session),
+        password=download_client_config.get_torrent_client_password(session),
+        client_session=client_session,
+    )
+    try:
+        ok = await client.test_connection()
+    except TorrentClientError as e:
+        raise HTTPException(status_code=400, detail=e.message) from e
+
+    if not ok:
+        raise HTTPException(status_code=400, detail="Torrent client connection failed")
+    return DownloadClientTestResponse(ok=True)
 
 
 @router.post("/client/test", response_model=DownloadClientTestResponse)

@@ -134,6 +134,7 @@ def mock_server() -> Iterator[mock_services.MockServer]:
     mock_services.install_audiobookshelf(server)
     mock_services.install_oidc(server)
     mock_services.install_aria2(server)
+    mock_services.install_qbittorrent(server)
     server.start()
     yield server
     server.stop()
@@ -205,6 +206,19 @@ def prowlarr(
         prowlarr_config.set_api_key(session, "mock-api-key")
         prowlarr_config.set_categories(session, [3030])
         prowlarr_config.set_indexers(session, [])
+    yield mock_server
+
+
+@pytest.fixture
+def torrent_client(
+    mock_server: mock_services.MockServer,
+) -> Iterator[mock_services.MockServer]:
+    with Session(engine) as session:
+        download_client_config.set_torrent_client_url(
+            session, f"{mock_server.base_url}/qbittorrent"
+        )
+        download_client_config.set_torrent_client_username(session, "admin")
+        download_client_config.set_torrent_client_password(session, "admin")
     yield mock_server
 
 

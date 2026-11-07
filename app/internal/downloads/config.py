@@ -14,6 +14,9 @@ DownloadClientConfigKey = Literal[
     "download_client_port",
     "download_client_rpc_secret",
     "download_client_dir",
+    "torrent_client_url",
+    "torrent_client_username",
+    "torrent_client_password",
 ]
 
 _DEFAULT_PORT = 6800
@@ -52,6 +55,31 @@ class DownloadClientConfig(StringConfigCache[DownloadClientConfigKey]):
 
     def is_configured(self, session: Session) -> bool:
         return self.get_host(session) is not None and self.get_dir(session) is not None
+
+    def get_torrent_client_url(self, session: Session) -> str | None:
+        url = self.get(session, "torrent_client_url")
+        if url:
+            return url.rstrip("/")
+        return None
+
+    def set_torrent_client_url(self, session: Session, url: str):
+        self.set(session, "torrent_client_url", url.strip())
+
+    def get_torrent_client_username(self, session: Session) -> str:
+        return self.get(session, "torrent_client_username") or ""
+
+    def set_torrent_client_username(self, session: Session, username: str):
+        self.set(session, "torrent_client_username", username.strip())
+
+    def get_torrent_client_password(self, session: Session) -> str:
+        return self.get(session, "torrent_client_password") or ""
+
+    def set_torrent_client_password(self, session: Session, password: str):
+        self.set(session, "torrent_client_password", password)
+
+    def is_torrent_client_configured(self, session: Session) -> bool:
+        """Whether a torrent download client is configured for status tracking."""
+        return bool(self.get_torrent_client_url(session))
 
     def raise_if_invalid(self, session: Session):
         if not self.get_host(session):
