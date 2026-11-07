@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import posixpath
-import re
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -18,9 +17,12 @@ from app.internal.audiobookshelf.types import (
     ABSPodcastItem,
 )
 from app.internal.models import Audiobook
+from app.util.cache import SimpleCache
 from app.util.connection import USER_AGENT
 from app.util.db import get_session
 from app.util.log import logger
+from app.util.normalize import normalize_for_match
+from app.util.release_title import clean_release_title, release_author_key
 
 
 def _headers(session: Session) -> dict[str, str]:
@@ -230,10 +232,79 @@ async def _abs_search(
         return []
 
 
-def _normalize(s: str) -> str:
-    s = s.lower().strip()
-    s = re.sub(r"[^a-z0-9]+", " ", s)
-    return re.sub(r"\s+", " ", s).strip()
+#: How long an "is this title in the library" answer is reused (seconds).
+LIBRARY_CHECK_TTL = 300
+
+_library_checks: SimpleCache[bool, str, str, str] = SimpleCache()
+
+
+def flush_library_check_cache() -> None:
+    """Drop cached in-library answers (tests and settings changes)."""
+    _library_checks.flush()
+
+
+def _library_cache_key(
+    session: Session, title: str, authors: list[str]
+) -> tuple[str, str, str]:
+    return (
+        abs_config.get_library_id(session) or "",
+        normalize_for_match(clean_release_title(title)),
+        release_author_key(authors),
+    )
+
+
+async def abs_title_author_in_library(
+    session: Session,
+    client_session: ClientSession,
+    title: str,
+    authors: list[str],
+) -> bool:
+    """Whether a title (optionally by one of the authors) exists in ABS.
+
+    Titles are cleaned and normalized before comparison so release titles such as
+    ``Book.Name.MP3`` still match the library's ``Book Name``. When no authors are
+    known the title comparison alone decides.
+    """
+    if not abs_config.is_valid(session):
+        return False
+
+    clean_title = clean_release_title(title)
+    norm_title = normalize_for_match(clean_title)
+    if not norm_title:
+        return False
+
+    cache_key = _library_cache_key(session, title, authors)
+    cached = _library_checks.get(LIBRARY_CHECK_TTL, *cache_key)
+    if cached is not None:
+        return cached
+
+    query = clean_title if not authors else f"{clean_title} {' '.join(authors)}"
+    candidates = await _abs_search(session, client_session, query.strip())
+    norm_authors = {normalize_for_match(author) for author in authors if author}
+
+    found = False
+    for item in candidates:
+        candidate_title = item.media.metadata.title
+        if not candidate_title:
+            continue
+        if normalize_for_match(candidate_title) != norm_title:
+            continue
+        candidate_authors = {
+            normalize_for_match(author.name) for author in item.media.metadata.authors
+        }
+        if not norm_authors or norm_authors & candidate_authors:
+            found = True
+            break
+
+    logger.debug(
+        "ABS: library check",
+        title=clean_title,
+        authors=authors,
+        in_library=found,
+        candidate_count=len(candidates),
+    )
+    _library_checks.set(found, *cache_key)
+    return found
 
 
 async def abs_book_exists(
@@ -242,32 +313,9 @@ async def abs_book_exists(
     book: Audiobook,
 ) -> bool:
     """Heuristic check if a book exists in ABS library by searching by title and author."""
-    q = f"{book.title} {' '.join(book.authors)}".strip()
-    candidates = await _abs_search(session, client_session, q)
-    logger.debug(
-        "ABS: title search results",
-        title=book.title,
-        candidate_count=len(candidates),
+    return await abs_title_author_in_library(
+        session, client_session, book.title, book.authors
     )
-
-    if not candidates:
-        return False
-
-    norm_title = _normalize(book.title)
-    norm_authors = {_normalize(a) for a in book.authors}
-
-    for it in candidates:
-        # ABS search returns different shapes, try best-effort
-        title = it.media.metadata.title
-        if not title:
-            logger.debug("ABS: search result missing title", item=it)
-            continue
-        authors = it.media.metadata.authors
-        if _normalize(title) == norm_title and (
-            not norm_authors or any(_normalize(a.name) in norm_authors for a in authors)
-        ):
-            return True
-    return False
 
 
 async def abs_mark_downloaded_flags(

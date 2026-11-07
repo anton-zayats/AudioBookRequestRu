@@ -8,15 +8,23 @@ the right client while recording a :class:`~app.internal.models.DownloadJob`.
 
 from __future__ import annotations
 
+import asyncio
 import posixpath
 import re
+from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 from urllib.parse import urlparse
 
 from aiohttp import ClientSession
-from sqlmodel import Session, desc, select
+from pydantic import BaseModel
+from sqlmodel import Session, col, desc, select
 
-from app.internal.audiobookshelf.client import abs_trigger_scan
+from app.internal.audiobookshelf.client import (
+    abs_title_author_in_library,
+    abs_trigger_scan,
+)
 from app.internal.audiobookshelf.config import abs_config
 from app.internal.downloads.aria2 import Aria2Client
 from app.internal.downloads.client import DownloadFile
@@ -34,6 +42,33 @@ from app.internal.models import (
 )
 from app.internal.prowlarr.prowlarr import start_download
 from app.util.log import logger
+from app.util.release_title import (
+    clean_release_title,
+    release_author_key,
+    release_group_key,
+    release_title_key,
+)
+
+#: User-facing download state of a release.
+ReleaseState = Literal["not_downloaded", "sent", "completed", "failed"]
+
+_STATE_LABELS: dict[ReleaseState, str] = {
+    "not_downloaded": "Not downloaded",
+    "sent": "Sent to download",
+    "completed": "Downloaded",
+    "failed": "Download failed",
+}
+
+#: Download-job statuses mapped onto the three user-facing states.
+_JOB_STATES: dict[str, ReleaseState] = {
+    "downloading": "sent",
+    "queued": "sent",
+    "completed": "completed",
+    "failed": "failed",
+}
+
+#: How many Audiobookshelf "is it in the library" checks run concurrently.
+_LIBRARY_CHECK_CONCURRENCY = 4
 
 
 def _sanitize_segment(value: str) -> str:
@@ -52,12 +87,17 @@ def _filename_from_url(url: str) -> str | None:
 
 
 def release_from_source(source: DownloadSource) -> Release:
-    """Map a transient ``DownloadSource`` to a persisted ``Release`` (no id)."""
+    """Map a transient ``DownloadSource`` to a persisted ``Release`` (no id).
+
+    The release title prefers the provider's clean book title (knigavuhe sends
+    one) over the raw result title (tracker upload names carry quality noise).
+    """
+    title = source.book_metadata.title or source.title
     if isinstance(source, TorrentSource):
         return Release(
             protocol="torrent",
             guid=source.guid,
-            title=source.title,
+            title=title,
             authors=source.book_metadata.authors,
             narrators=source.book_metadata.narrators,
             indexer_id=source.indexer_id,
@@ -75,7 +115,7 @@ def release_from_source(source: DownloadSource) -> Release:
         return Release(
             protocol="usenet",
             guid=source.guid,
-            title=source.title,
+            title=title,
             authors=source.book_metadata.authors,
             narrators=source.book_metadata.narrators,
             indexer_id=source.indexer_id,
@@ -91,7 +131,7 @@ def release_from_source(source: DownloadSource) -> Release:
     return Release(
         protocol="direct",
         guid=source.guid,
-        title=source.title,
+        title=title,
         authors=source.book_metadata.authors,
         narrators=source.book_metadata.narrators,
         indexer_id=source.indexer_id,
@@ -158,21 +198,222 @@ def remove_release_request(session: Session, release_id: int, username: str) -> 
     return True
 
 
+class ReleaseBookmark(BaseModel):
+    """A bookmarked release plus who bookmarked it."""
+
+    release: Release
+    requested_at: datetime
+    users: list[str] = []
+
+
 def list_release_requests(
-    session: Session, username: str
-) -> list[tuple[Release, datetime]]:
-    """Return ``(release, requested_at)`` for a user's bookmarks."""
-    requests = session.exec(
-        select(ReleaseRequest)
-        .where(ReleaseRequest.user_username == username)
-        .order_by(desc(ReleaseRequest.created_at))
+    session: Session, username: str | None
+) -> list[ReleaseBookmark]:
+    """Return bookmarks with their requesters, newest first.
+
+    ``username=None`` lists every user's bookmarks (admin view); a username
+    limits the list to that user's own bookmarks.
+    """
+    statement = select(ReleaseRequest).order_by(desc(ReleaseRequest.created_at))
+    if username is not None:
+        statement = statement.where(ReleaseRequest.user_username == username)
+
+    grouped: dict[int, ReleaseBookmark] = {}
+    for req in session.exec(statement).all():
+        bookmark = grouped.get(req.release_id)
+        if bookmark is None:
+            release = session.get(Release, req.release_id)
+            if release is None:
+                continue
+            bookmark = ReleaseBookmark(
+                release=release, requested_at=req.created_at, users=[]
+            )
+            grouped[req.release_id] = bookmark
+        if req.user_username not in bookmark.users:
+            bookmark.users.append(req.user_username)
+
+    return list(grouped.values())
+
+
+def release_states(session: Session, release_ids: list[int]) -> dict[int, ReleaseState]:
+    """Latest download state per release (``not_downloaded`` when never sent)."""
+    if not release_ids:
+        return {}
+    jobs = session.exec(
+        select(DownloadJob)
+        .where(col(DownloadJob.release_id).in_(release_ids))
+        .order_by(desc(DownloadJob.id))
     ).all()
-    result: list[tuple[Release, datetime]] = []
+    states: dict[int, ReleaseState] = {}
+    for job in jobs:
+        if job.release_id in states:
+            continue
+        states[job.release_id] = _JOB_STATES.get(job.status, "sent")
+    return states
+
+
+def bookmark_users(session: Session, release_ids: list[int]) -> dict[int, list[str]]:
+    """Usernames that bookmarked each release."""
+    if not release_ids:
+        return {}
+    result: dict[int, list[str]] = defaultdict(list)
+    requests = session.exec(
+        select(ReleaseRequest).where(col(ReleaseRequest.release_id).in_(release_ids))
+    ).all()
     for req in requests:
-        release = session.get(Release, req.release_id)
-        if release is not None:
-            result.append((release, req.created_at))
-    return result
+        result[req.release_id].append(req.user_username)
+    return dict(result)
+
+
+class ReleaseView(BaseModel):
+    """A release plus the per-user presentation state of the lists/rows."""
+
+    release: Release
+    state: ReleaseState = "not_downloaded"
+    bookmarked: bool = False
+    in_library: bool | None = None
+    requested_by: list[str] = []
+
+    @property
+    def id(self) -> int | None:
+        return self.release.id
+
+    @property
+    def group_key(self) -> str:
+        return release_group_key(self.release.title, self.release.authors)
+
+    @property
+    def status_label(self) -> str:
+        """Short label for the row's state column."""
+        if self.in_library:
+            return "In library"
+        return _STATE_LABELS[self.state]
+
+    @property
+    def status_tone(self) -> str:
+        """DaisyUI badge tone matching :attr:`status_label`."""
+        if self.in_library:
+            return "badge-success"
+        if self.state == "failed":
+            return "badge-error"
+        if self.state == "sent":
+            return "badge-info"
+        if self.state == "completed":
+            return "badge-success"
+        return "badge-ghost"
+
+
+async def build_release_views(
+    session: Session,
+    client_session: ClientSession,
+    releases: list[Release],
+    username: str | None = None,
+    check_library: bool = True,
+) -> list[ReleaseView]:
+    """Attach state, bookmark and in-library information to releases.
+
+    ``username`` decides the ``bookmarked`` flag (that user's own bookmark);
+    ``requested_by`` always lists every requester. Library checks are skipped
+    when Audiobookshelf is not configured.
+    """
+    release_ids = [release.id for release in releases]
+    states = release_states(session, release_ids)
+    bookmarks = bookmark_users(session, release_ids)
+
+    in_library: dict[int, bool] = {}
+    if check_library and releases and abs_config.is_valid(session):
+        semaphore = asyncio.Semaphore(_LIBRARY_CHECK_CONCURRENCY)
+
+        async def _check(release: Release) -> None:
+            async with semaphore:
+                try:
+                    in_library[release.id] = await abs_title_author_in_library(
+                        session, client_session, release.title, release.authors
+                    )
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.debug(
+                        "ABS: library check failed",
+                        release_id=release.id,
+                        error=str(exc),
+                    )
+
+        await asyncio.gather(*[_check(release) for release in releases])
+
+    views: list[ReleaseView] = []
+    for release in releases:
+        users = bookmarks.get(release.id, [])
+        views.append(
+            ReleaseView(
+                release=release,
+                state=states.get(release.id, "not_downloaded"),
+                bookmarked=username in users if username is not None else bool(users),
+                in_library=in_library.get(release.id),
+                requested_by=users,
+            )
+        )
+    return views
+
+
+@dataclass
+class ReleaseGroup:
+    """Releases of the same book, for the grouped requests view."""
+
+    title: str
+    authors: list[str] = field(default_factory=list)
+    releases: list[ReleaseView] = field(default_factory=list)
+
+    @property
+    def key(self) -> str:
+        return release_group_key(self.title, self.authors)
+
+
+def group_release_views(views: list[ReleaseView]) -> list[ReleaseGroup]:
+    """Group release views by title + author, keeping first-seen order.
+
+    Releases without authors (most tracker uploads) are merged into the single
+    author-known group with the same cleaned title; if several different authors
+    share a title, the author-less releases stay in their own group.
+    """
+    author_groups: dict[str, ReleaseGroup] = {}
+    order: list[str] = []
+    unknown_author: dict[str, list[ReleaseView]] = defaultdict(list)
+
+    for view in views:
+        release = view.release
+        title_key = release_title_key(release.title)
+        author_key = release_author_key(release.authors)
+        if not author_key:
+            unknown_author[title_key].append(view)
+            continue
+        key = f"{title_key}|{author_key}"
+        group = author_groups.get(key)
+        if group is None:
+            group = ReleaseGroup(
+                title=clean_release_title(release.title), authors=list(release.authors)
+            )
+            author_groups[key] = group
+            order.append(key)
+        group.releases.append(view)
+
+    groups_by_title: dict[str, list[ReleaseGroup]] = defaultdict(list)
+    for key in order:
+        groups_by_title[key.split("|", 1)[0]].append(author_groups[key])
+
+    extra: list[ReleaseGroup] = []
+    for title_key, views_without_author in unknown_author.items():
+        candidates = groups_by_title.get(title_key, [])
+        if len(candidates) == 1:
+            candidates[0].releases.extend(views_without_author)
+            continue
+        extra.append(
+            ReleaseGroup(
+                title=clean_release_title(views_without_author[0].release.title),
+                releases=list(views_without_author),
+            )
+        )
+
+    groups = [author_groups[key] for key in order]
+    return [*groups, *extra]
 
 
 async def _enqueue_direct(
@@ -238,6 +479,9 @@ async def download_release(
             )
         session.add(job)
         session.commit()
+
+        # Keep the release in the requests list so its download state stays visible.
+        add_release_request(session, release.id, username)
 
         if abs_config.is_valid(session):
             try:

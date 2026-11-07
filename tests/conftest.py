@@ -34,6 +34,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.internal import models
+from app.internal.audiobookshelf.client import flush_library_check_cache
 from app.internal.audiobookshelf.config import abs_config
 from app.internal.auth.authentication import create_user
 from app.internal.auth.config import auth_config
@@ -67,6 +68,7 @@ from tests import mock_services
 def _flush_caches() -> None:
     auth_config.flush()
     abs_config.flush()
+    flush_library_check_cache()
     oidc_config.flush()
     prowlarr_config.flush()
     quality_config.flush()

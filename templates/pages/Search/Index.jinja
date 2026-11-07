@@ -1,12 +1,9 @@
 {#def
     user: DetailedUser,
     search_term: str,
-    search_results: list[DownloadSource],
+    search_results: list[ReleaseView],
     page: int,
     source: str = "both",
-    auto_start_download: bool,
-    prowlarr_configured: bool,
-    suggestions: list[str] = [],
 #}
 
 <BaseLayout title="Search" user={{ user }}>
@@ -35,7 +32,7 @@
             <icons.Plus />
         </a>
     </div>
-    <div class="flex flex-col gap-4 justify-start items-center">
+    <div class="flex flex-col gap-4 justify-start items-center w-full">
         <form class="flex items-start w-full join"
               method="get"
               onsubmit="onSearch();">
@@ -46,7 +43,20 @@
                    value="{{ search_term }}"
                    spellcheck="false"
                    autocomplete="off" />
-
+            <select name="source"
+                    class="select join-item w-36"
+                    title="Where to search for releases"
+                    onchange="this.form.submit()">
+                <option value="both" {% if source != "tracker" and source != "direct" %}selected{% endif %}>
+                    All sources
+                </option>
+                <option value="tracker" {% if source == "tracker" %}selected{% endif %}>
+                    Trackers
+                </option>
+                <option value="direct" {% if source == "direct" %}selected{% endif %}>
+                    Direct
+                </option>
+            </select>
             <button id="search" class="btn btn-primary join-item" type="submit">
                 <span id="search-text">Search</span>
                 <span id="search-spinner" class="loading hidden"></span>
@@ -57,8 +67,6 @@
                 <table class="table table-zebra table-pin-rows min-w-200">
                     <thead>
                         <tr>
-                            <th>
-                            </th>
                             <th>
                                 Title
                             </th>
@@ -78,54 +86,16 @@
                                 Size (MB)
                             </th>
                             <th>
-                                Flags
+                                Status
+                            </th>
+                            <th>
+                                Actions
                             </th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for source in search_results %}
-                            <tr class="text-xs lg:text-sm">
-                                <th>
-                                    {{ loop.index }}
-                                </th>
-                                <td>
-                                    {% if source.info_url %}
-                                        <a href="{{ source.info_url }}" class="link">{{ source.title }}</a>
-                                    {% else %}
-                                        {{ source.title }}
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if source.book_metadata.narrators %}
-                                        {{ source.book_metadata.narrators | join(", ") }}
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {{ source.indexer }}
-                                </td>
-                                <td>
-                                    {{ source.protocol }}
-                                </td>
-                                <td>
-                                    {% if source.protocol == "torrent" %}
-                                        {{ source.seeders }} / {{ source.leechers }}
-                                    {% elif source.protocol == "usenet" %}
-                                        {{ source.grabs }} grabs
-                                    {% else %}
-                                        {{ source.download_urls | length }} file(s)
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {{ source.size_MB }}
-                                </td>
-                                <td>
-                                    {% if "sample" in source.indexer_flags %}
-                                        <span class="badge badge-warning">Sample only</span>
-                                    {% else %}
-                                        {{ source.indexer_flags | join(", ") }}
-                                    {% endif %}
-                                </td>
-                            </tr>
+                        {% for view in search_results %}
+                            <Search.Row view={{ view }} />
                         {% endfor %}
                     </tbody>
                 </table>
@@ -153,8 +123,8 @@
             <div class="pt-8 flex flex-col gap-1 items-center justify-center text-center max-w-[20rem]">
                 {% if search_term %}
                     <span class="text-xl font-semibold">No results found</span>
-                    <span class="text-sm">No audiobooks were found. If the book doesn't appear, it can be added
-                        <a class="link" preload href="{{ base_url }}/search/manual">manually</a>.</span>
+                    <span class="text-sm">No releases were found. Try a different title or
+                        <a class="link" preload href="{{ base_url }}/search/manual">add a request manually</a>.</span>
                 {% else %}
                     <span class="text-xl font-semibold">Perform a search</span>
                     <span class="text-sm opacity-60">Nothing has been searched yet.</span>

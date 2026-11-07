@@ -367,6 +367,11 @@ class Release(BaseSQLModel, table=True):
     book_id: int | None = Field(
         default=None, foreign_key="audiobook.id", ondelete="SET NULL"
     )
+
+    @property
+    def size_MB(self) -> float:
+        return round(self.size / 1e6, 1)
+
     created_at: datetime = Field(
         default_factory=datetime.now,
         sa_column=Column(server_default=func.now(), type_=DateTime, nullable=False),

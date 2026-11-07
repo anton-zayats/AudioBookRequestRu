@@ -1,0 +1,80 @@
+{#def
+    view: ReleaseView,
+#}
+{% set release = view.release %}
+{% set no_files = release.protocol == "direct" and not release.download_urls %}
+<tr id="release-row-{{ release.id }}" class="text-xs lg:text-sm">
+    <td>
+        {% if release.info_url %}
+            <a href="{{ release.info_url }}" class="link" target="_blank" rel="noreferrer">{{ release.title }}</a>
+        {% else %}
+            {{ release.title }}
+        {% endif %}
+        {% if release.authors %}
+            <span class="opacity-60">— {{ release.authors | join(", ") }}</span>
+        {% endif %}
+    </td>
+    <td>
+        {{ release.narrators | join(", ") }}
+    </td>
+    <td>
+        {{ release.indexer }}
+    </td>
+    <td>
+        {{ release.protocol }}
+    </td>
+    <td>
+        {% if release.protocol == "torrent" %}
+            {{ release.seeders }} / {{ release.leechers }}
+        {% elif release.protocol == "usenet" %}
+            {{ release.grabs }} grabs
+        {% else %}
+            {{ release.download_urls | length }} file(s)
+        {% endif %}
+    </td>
+    <td>
+        {{ release.size_MB }}
+    </td>
+    <td>
+        <div class="flex flex-col gap-1 items-start">
+            {% if view.in_library or view.state != "not_downloaded" %}
+                <span class="badge badge-sm {{ view.status_tone }}">{{ view.status_label }}</span>
+            {% endif %}
+            {% if "sample" in release.indexer_flags %}
+                <span class="badge badge-sm badge-warning">Sample only</span>
+            {% endif %}
+            {% for flag in release.indexer_flags %}
+                {% if flag != "sample" %}
+                    <span class="badge badge-sm badge-ghost">{{ flag }}</span>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </td>
+    <td>
+        <div class="flex flex-wrap gap-1">
+            <button class="btn btn-sm btn-primary"
+                    title="{% if no_files %}This release has no downloadable files{% else %}Send this release to the download client{% endif %}"
+                    hx-post="{{ base_url }}/search/hx-download/{{ release.id }}"
+                    hx-target="closest tr"
+                    hx-swap="outerHTML"
+                    {% if no_files %}disabled{% endif %}>
+                <icons.Download />
+                Download
+            </button>
+            <button class="btn btn-sm {% if view.bookmarked %}btn-active{% endif %}"
+                    title="{% if view.bookmarked %}Remove this release from your requests{% else %}Download this release later{% endif %}"
+                    hx-post="{{ base_url }}/search/hx-toggle-request/{{ release.id }}"
+                    hx-target="closest tr"
+                    hx-swap="outerHTML">
+                {% if view.bookmarked %}
+                    Remove from requests
+                {% else %}
+                    Add to requests
+                {% endif %}
+            </button>
+        </div>
+        {% if view.requested_by %}
+            <div class="text-[0.65rem] opacity-60 mt-1">Requested by {{ view.requested_by | join(", ") }}</div>
+        {% endif %}
+    </td>
+</tr>

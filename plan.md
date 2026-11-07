@@ -163,6 +163,7 @@ source filter (`tracker | direct | both`). Livelib is **not** in this path.
 
 **Acceptance met:** 104 tests pass (`tests/test_knigavuhe.py`, `tests/test_russian_matching.py`); `ruff check`/`format` clean; `basedpyright` = 0 errors on `sources/`, `normalize.py`, `download_ranking.py`.
 
+
 ### Phase 5 — Hardening, docs, release prep (DONE)
 - [x] Full regression: `uv run pytest` = 113 passed; ruff / basedpyright clean.
 - [x] `README.md` rewrite (livelib + knigavuhe + aria2 + Prowlarr + release selection + ABS).
@@ -179,11 +180,10 @@ source filter (`tracker | direct | both`). Livelib is **not** in this path.
 
 **Acceptance met:** 113 tests pass (`tests/test_selected_release.py`); ruff/basedpyright clean; migration `b3a1c2d4e5f6` applies; `selected_release` column present.
 
-### Phase 7 — Release-centric core + search simplification (P12, NEXT)
-- [x] **Search → releases**: `GET /api/search` queries Prowlarr + direct sources directly (no livelib), returns a **flat, paginated** ranked release list with a source filter (`tracker | direct | both`); the search page renders release rows (API filter/pagination done; UI filter controls in step 3).
-- [ ] `Release` entity + `ReleaseRequest` as a **bookmark** (no status workflow): `(release_id, user)`; download status lives in `DownloadJob` (P9). Migrate off `Audiobook.downloaded` + single `selected_release`.
-- [ ] Two search actions per release: **Send to download** (immediate) and **Add to requests** (download later).
-- [ ] Requests list: shows **in-library state automatically on load** (ABS narrator check every render); per-release actions: **download**, **remove**, **refresh** (re-fetch that source's page/guid).
+### Phase 7 — Release-centric core + search simplification (P12, IN PROGRESS)
+- [x] **Search → releases**: `GET /api/search` queries Prowlarr + direct sources directly (no livelib), returns a **flat, paginated** ranked release list with a source filter (`tracker | direct | both`); the search page renders release rows with the source filter, a **Send to download** / **Add to requests** action pair per row, and an **in-library** badge (ABS title+author check, cached).
+- [x] Requests backend: admin-wide bookmark listing with requester names, per-release download **state label** (`Not downloaded | Sent to download | Downloaded | Download failed`), in-library flag, and title+author grouping helpers (`app/util/release_title.py`, `group_release_views`).
+- [ ] Requests page UI: grouped by title/author with per-release **download**, **remove**, **refresh** (re-fetch that source's page/guid); retire `Audiobook.downloaded` + `selected_release` UI.
 - [ ] Narrator extraction from Prowlarr titles (`[Narrator]` / `(Narrator)` patterns) into `release.narrators`.
 - [ ] Livelib enrichment service (post-grab): title+author → cover/clean metadata; push author/narrator to ABS.
 - [ ] Search history + release request history.
@@ -249,7 +249,7 @@ Test results table (fill as phases complete):
 | 5 | full regression | `uv run pytest` = 113 passed | `[x]` | 2026-11-03 |
 | 6 | release/narrator selection | `uv run pytest` = 113 passed · ruff clean · basedpyright clean | `[x]` | 2026-11-03 |
 | 7 | P8 release persistence + re-request + P10 title split (+ sample-only, unmark, ABS cross-ref fixes) | `uv run pytest` = 128 passed · ruff/basedpyright clean · migration `c4d5e6f7a8b9` | `[x]` | 2026-11-04 |
-| 8 | P12 release-centric core + search simplification | — | `[ ]` | — |
+| 8 | P12 release-centric core + search simplification | steps 1–2 done: `uv run pytest` = 147 passed · ruff/basedpyright clean | `[~]` | 2026-11-04 |
 | 9 | P9 download lifecycle | — | `[ ]` | — |
 
 ---
@@ -282,7 +282,7 @@ Test results table (fill as phases complete):
 | P9 | Download lifecycle: completion/failure tracking, move-to-library, retry | 8 | — | `[ ]` | moved after P12; scope in §5 Phase 8 |
 | P10 | Split multi-novel livelib titles into separate searches | follow-up | in-session | `[x]` | verified: `split_combined_title` + chooser/sources suggestion |
 | P11 | Sync `downloaded` with ABS (unmark books ABS doesn't have) | follow-up | — | `[~]` | folded into P12/P9 release-centric status |
-| P12 | Release-centric core + search simplification (livelib → metadata only) | 7 | — | `[ ]` | NEXT — see §5 Phase 7 |
+| P12 | Release-centric core + search simplification (livelib → metadata only) | 7 | in-session | `[~]` | steps 1–2: release search UI (filter/actions/in-library) + bookmark API (admin-wide, state) — see §5 Phase 7 |
 | —  | (future phases, as needed) | —   | — | — | — |
 
 ---
