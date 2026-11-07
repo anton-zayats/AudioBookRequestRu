@@ -1,9 +1,14 @@
 {#def
     user: DetailedUser,
     groups: list[ReleaseGroup],
+    counts: dict[str, int] = {},
+    update_tablist: bool = False,
 #}
 
 <div id="requests-content" class="flex flex-col gap-2">
+    {% if update_tablist %}
+        <Requests.Tablist page="releases" counts={{ counts }} />
+    {% endif %}
     {% if not groups %}
         <div role="alert" class="alert">
             <span class="stroke-info h-6 w-6 shrink-0">

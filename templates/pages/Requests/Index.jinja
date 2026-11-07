@@ -1,6 +1,7 @@
 {#def
     user: DetailedUser,
     groups: list[ReleaseGroup],
+    counts: dict[str, int],
 #}
 
 <BaseLayout title="Requests" user={{ user }}>
@@ -13,6 +14,7 @@
             Releases you want to download later. Add them from the search page.
         </span>
     </div>
-    <Requests.Content user={{ user }} groups={{ groups }} />
+    <Requests.Tablist page="releases" counts={{ counts }} />
+    <Requests.Content user={{ user }} groups={{ groups }} counts={{ counts }} />
 </div>
 </BaseLayout>

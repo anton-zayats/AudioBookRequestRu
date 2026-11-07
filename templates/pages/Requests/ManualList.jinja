@@ -1,0 +1,110 @@
+{#def
+    user: DetailedUser,
+    results: list[ManualBookRequest],
+#}
+
+<div id="manual-requests" class="overflow-x-auto">
+    <table class="table table-pin-rows min-w-240">
+        <thead>
+            <tr>
+                <th>
+                    Title
+                </th>
+                <th>
+                    Author
+                </th>
+                <th>
+                    Narrator
+                </th>
+                <th>
+                    Released
+                </th>
+                <th>
+                    Info
+                </th>
+                <th>
+                    Requested by
+                </th>
+                <th>
+                    Status
+                </th>
+                <th>
+                </th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for book in results %}
+                <tr id="manual-{{ book.id }}"
+                    class="text-xs lg:text-sm {% if book.downloaded %}bg-success/20{% endif %}">
+                    <td class="{% if book.subtitle %}flex{% endif %} flex-col">
+                        <span>{{ book.title }}</span>
+                        {% if book.subtitle %}
+                            <span class="font-semibold line-clamp-4">{{ book.subtitle }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ book.authors | join(", ") }}
+                    </td>
+                    <td>
+                        {{ book.narrators | join(", ") }}
+                    </td>
+                    <td>
+                        {{ book.publish_date }}
+                    </td>
+                    <td>
+                        {{ book.additional_info }}
+                    </td>
+                    <td>
+                        {{ book.user_username }}
+                    </td>
+                    <td>
+                        <span class="badge badge-sm {% if book.downloaded %}badge-success{% else %}badge-ghost{% endif %}">
+                            {% if book.downloaded %}Downloaded{% else %}Not downloaded{% endif %}
+                        </span>
+                    </td>
+                    <td>
+                        <div class="flex flex-wrap gap-1 justify-end">
+                            <a class="btn btn-sm"
+                               href="{{ base_url }}/search/manual?id={{ book.id }}"
+                               title="Edit this request">
+                                <icons.Pencil />
+                                Edit
+                            </a>
+                            <button class="btn btn-sm btn-primary"
+                                    title="{% if book.downloaded %}Already marked downloaded{% else %}Mark this request as downloaded{% endif %}"
+                                    {% if not user.is_admin() or book.downloaded %}disabled{% endif %}
+                                    hx-patch="{{ base_url }}/requests/manual/hx-mark/{{ book.id }}"
+                                    hx-target="#manual-requests"
+                                    hx-swap="outerHTML"
+                                    hx-disabled-elt="this">
+                                <icons.Checkmark />
+                                Downloaded
+                            </button>
+                            <button class="btn btn-sm"
+                                    title="{% if user.is_admin() %}Remove this request{% else %}Only an admin can remove requests{% endif %}"
+                                    {% if not user.is_admin() %}disabled{% endif %}
+                                    hx-delete="{{ base_url }}/requests/manual/hx-remove/{{ book.id }}"
+                                    hx-target="#manual-requests"
+                                    hx-swap="outerHTML"
+                                    hx-disabled-elt="this">
+                                <icons.Ban />
+                                Remove
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if not results %}
+        <div role="alert" class="alert my-2">
+            <span class="stroke-info h-6 w-6 shrink-0">
+                <icons.InfoCircle />
+            </span>
+            <span>
+                No manual requests. Add one from
+                <a preload class="link" href="{{ base_url }}/search/manual">manual add</a>.
+            </span>
+        </div>
+    {% endif %}
+</div>

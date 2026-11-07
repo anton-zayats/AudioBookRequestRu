@@ -43,12 +43,7 @@ from app.internal.auth.oidc_config import oidc_config
 from app.internal.downloads.config import download_client_config
 from app.internal.indexers.configuration import indexer_configuration_cache
 from app.internal.indexers.mam import MamIndexer
-from app.internal.models import (
-    Audiobook,
-    AudiobookRequest,
-    GroupEnum,
-    ManualBookRequest,
-)
+from app.internal.models import Audiobook, GroupEnum, ManualBookRequest
 from app.internal.prowlarr.util import (
     prowlarr_config,
     prowlarr_indexer_cache,
@@ -113,7 +108,6 @@ def _seed() -> None:
                 cover_image=None,
                 release_date=datetime(2020, 1, 1, tzinfo=UTC),
                 runtime_length_min=300,
-                downloaded=True,
             )
         )
         session.add(
@@ -125,12 +119,6 @@ def _seed() -> None:
                 narrators=[],
                 downloaded=False,
             )
-        )
-        session.commit()
-
-        session.add(AudiobookRequest(book_id=BOOK_ID, user_username="trusted"))
-        session.add(
-            AudiobookRequest(book_id=DOWNLOADED_BOOK_ID, user_username="trusted")
         )
         session.commit()
 
@@ -187,6 +175,16 @@ def trusted_client() -> Iterator[TestClient]:
     with TestClient(
         app.main.app,
         headers=_basic("trusted", "trustedpass"),
+        raise_server_exceptions=False,
+    ) as client:
+        yield client
+
+
+@pytest.fixture
+def untrusted_client() -> Iterator[TestClient]:
+    with TestClient(
+        app.main.app,
+        headers=_basic("untrusted", "untrustedpass"),
         raise_server_exceptions=False,
     ) as client:
         yield client

@@ -1,12 +1,10 @@
 {#def
     title: str,
     user: DetailedUser,
-    reasons: list | None = None,
-    view_more: str | None = None,
-    lazy_url: str | None = None,
+    cards: list | None = None,
     description: str | None = None,
     empty: str | None = None,
-    auto_start_download: bool = False,
+    lazy_url: str | None = None,
 #}
 
 {% if lazy_url %}
@@ -23,9 +21,6 @@
                     {{ description }}
                 </p>
             </div>
-            {% if view_more %}
-                <a href="{{ base_url }}{{ view_more }}" class="link link-primary">Discover more →</a>
-            {% endif %}
         </div>
     </div>
 {% else %}
@@ -39,17 +34,14 @@
                     {{ description }}
                 </p>
             </div>
-            {% if view_more %}
-                <a href="{{ base_url }}{{ view_more }}" class="link link-primary">Discover more →</a>
-            {% endif %}
         </div>
         <div class="overflow-x-auto">
-            <div id="for-you" class="w-full max-w-7xl mb-8">
-                {% if reasons %}
+            <div class="w-full max-w-7xl mb-8">
+                {% if cards %}
                     <div class="flex gap-4 pb-4" style="width: max-content">
-                        {% for reason in reasons[:12] %}
-                            <div class="flex-none w-32 sm:w-40" title="{{ reason.reason }}">
-                                <BookCard book_with_requests={{ reason.book }} auto_start_download={{ auto_start_download }} user={{ user }} />
+                        {% for card in cards[:12] %}
+                            <div class="flex-none w-40 sm:w-52">
+                                <ReleaseCard popularity={{ card }} user={{ user }} />
                             </div>
                         {% endfor %}
                     </div>

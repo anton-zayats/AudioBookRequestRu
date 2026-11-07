@@ -82,28 +82,32 @@ Mount that directory locally somewhere to ensure persistent data across restarts
 
 1. On first login the login-type and root admin user have to be configured.
 2. Head to `Settings > Users` to create accounts for your friends.
-3. Any user can search for books and request them by clicking the `+` button.
-4. The admin can head to the wishlist to see all the books that have been requested.
+3. Search for a book: results are **releases** (from Prowlarr trackers and direct sources such as knigavuhe), each
+   with narrator, source, size and a status badge (`In library` when Audiobookshelf already has it).
+4. Per release, either **Download** immediately or **Add to requests** to download later.
+5. The `Requests` page groups bookmarked releases by title and author; each release can be downloaded, refreshed
+   (re-fetched from its source) or removed there. Admins see everyone's requests.
+6. Books that cannot be found can be added as a **manual request** (free text); an admin marks those downloaded.
 
 ### Metadata (livelib.ru)
 
-Search, suggestions, similar books, and categories are provided by **livelib.ru**. Each requested book is stored by
-its livelib work id; there is no metadata source to configure — livelib is the default (and currently only) provider.
+**livelib.ru** is used for **suggestions and metadata enrichment** only; it is no longer the search entry point.
+Releases are found by searching Prowlarr and the enabled direct sources directly. There is no metadata source to
+configure — livelib is the default (and currently only) provider.
 
 ### Tracker downloads (Prowlarr)
 
-Auto-downloading lets requests by `Trusted` and `Admin` users start downloading immediately, using your existing
-Prowlarr indexers and download clients for torrent/usenet results.
+`Download` on a tracker release is an in-app Prowlarr grab, using your existing Prowlarr indexers and configured
+download clients for torrent/usenet results.
 
 1. Ensure your Prowlarr instance is correctly set up with any indexers and download clients you want.
    [More info](https://prowlarr.com/).
 2. On Prowlarr, head to `Settings > General` and copy the `API Key`.
 3. On AudioBookRequestRu, head to `Settings > Prowlarr` and enter the API key and the base URL of your Prowlarr
    instance, e.g. `https://prowlarr.example.com`.
-4. Head to `Settings > Download` to configure the automatic download settings:
-   1. Enable `Auto Download` at the top.
-   2. The remaining heuristics determine the ranking of any sources retrieved from Prowlarr.
-   3. Indexer flags allow you to add priorities to certain sources like freeleeches.
+4. Head to `Settings > Download` to configure the download heuristics:
+   1. The ranking sliders determine the order of releases retrieved from Prowlarr.
+   2. Indexer flags allow you to add priorities to certain sources like freeleeches.
 
 #### Torrent downloads via Decypharr (optional)
 

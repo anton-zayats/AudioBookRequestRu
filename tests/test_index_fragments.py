@@ -1,69 +1,62 @@
-from datetime import UTC, datetime
-from typing import override
+"""Home page fragments: popular releases, lazy loading and visibility rules."""
 
-import pytest
+from __future__ import annotations
+
 from fastapi.testclient import TestClient
 
-from app.internal.metadata.base import MetadataProvider
-from app.internal.models import Audiobook
-from tests.constants import BOOK_ID
-from tests.fakes import FakeMetadataProvider
-from tests.http import json_list
+from tests.fakes import direct_source, torrent_source
 
 
-def test_index_popular_fragment(admin_client: TestClient) -> None:
-    popular = admin_client.get("/api/recommendations/popular")
-    assert popular.status_code == 200
-    assert json_list(popular)
+def _bookmark(client: TestClient, title: str, guid: str) -> None:
+    response = client.post(
+        "/api/releases/requests",
+        json=direct_source(guid=guid, book_title=title).model_dump(mode="json"),
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_index_popular_fragment(
+    admin_client: TestClient, trusted_client: TestClient
+) -> None:
+    _bookmark(trusted_client, "Test Book", "https://knigavuhe.org/book/1/")
 
     fragment = admin_client.get("/hx-popular")
-    assert fragment.status_code == 200
-    assert "Test Book" in fragment.text
-
-
-def test_index_recent_fragment(trusted_client: TestClient) -> None:
-    assert trusted_client.get("/hx-recent").status_code == 200
-
-
-def _categories_provider(_session: object) -> MetadataProvider:
-    class _CategoriesProvider(FakeMetadataProvider):
-        @override
-        async def categories(self) -> dict[str, list[Audiobook]]:
-            return {
-                "детективы": [
-                    Audiobook(
-                        source="livelib",
-                        external_id="work-cat-1",
-                        title="Category Book",
-                        subtitle=None,
-                        authors=["Cat Author"],
-                        narrators=[],
-                        cover_image=None,
-                        release_date=datetime(2021, 1, 1, tzinfo=UTC),
-                        runtime_length_min=300,
-                    )
-                ]
-            }
-
-    return _CategoriesProvider()
-
-
-def test_index_categories_fragment(
-    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "app.routers.api.recommendations.get_provider", _categories_provider
-    )
-    fragment = admin_client.get("/hx-categories")
     assert fragment.status_code == 200, fragment.text
-    assert "Category Book" in fragment.text
+    assert "Test Book" in fragment.text
+    assert "1 request" in fragment.text
 
 
-def test_popular_fragment_renders_reasons(admin_client: TestClient) -> None:
-    assert "Test Book" in admin_client.get("/hx-popular").text
+def test_popular_counts_requests(
+    admin_client: TestClient,
+    trusted_client: TestClient,
+    untrusted_client: TestClient,
+) -> None:
+    # Two different users request the same release; a third user sees the count.
+    _bookmark(trusted_client, "Test Book", "https://knigavuhe.org/book/1/")
+    _bookmark(admin_client, "Test Book", "https://knigavuhe.org/book/1/")
+
+    response = untrusted_client.get("/hx-popular")
+    assert response.status_code == 200, response.text
+    assert "2 requests" in response.text
 
 
-def test_popular_shown_when_another_user_has_request(admin_client: TestClient) -> None:
+def test_popular_excludes_own_requests(
+    admin_client: TestClient, trusted_client: TestClient
+) -> None:
+    _bookmark(admin_client, "Test Book", "https://knigavuhe.org/book/1/")
+    _bookmark(trusted_client, "Other Book", "https://knigavuhe.org/book/2/")
+
+    response = admin_client.get("/hx-popular")
+    assert response.status_code == 200, response.text
+    assert "Other Book" in response.text
+    assert "Test Book" not in response.text
+
+
+def test_popular_shown_when_another_user_has_a_request(
+    admin_client: TestClient, trusted_client: TestClient
+) -> None:
+    _bookmark(trusted_client, "Test Book", "https://knigavuhe.org/book/1/")
+
     response = admin_client.get("/")
     assert response.status_code == 200
     assert "/hx-popular" in response.text
@@ -72,15 +65,31 @@ def test_popular_shown_when_another_user_has_request(admin_client: TestClient) -
 def test_popular_hidden_when_user_is_sole_requester(
     trusted_client: TestClient,
 ) -> None:
+    _bookmark(trusted_client, "Test Book", "https://knigavuhe.org/book/1/")
+
     response = trusted_client.get("/")
     assert response.status_code == 200
     assert "/hx-popular" not in response.text
 
 
-def test_popular_hidden_when_other_requests_are_downloaded(
-    admin_client: TestClient,
-) -> None:
-    assert admin_client.patch(f"/api/requests/{BOOK_ID}/downloaded").status_code == 204
+def test_popular_hidden_without_requests(admin_client: TestClient) -> None:
     response = admin_client.get("/")
     assert response.status_code == 200
     assert "/hx-popular" not in response.text
+
+
+def test_home_shows_bookmarked_torrents(
+    admin_client: TestClient, trusted_client: TestClient
+) -> None:
+    assert (
+        trusted_client.post(
+            "/api/releases/requests",
+            json=torrent_source(title="Torrent Book mp3").model_dump(mode="json"),
+        ).status_code
+        == 201
+    )
+
+    fragment = admin_client.get("/hx-popular")
+    assert fragment.status_code == 200, fragment.text
+    assert "Torrent Book mp3" in fragment.text
+    assert "torrent" in fragment.text

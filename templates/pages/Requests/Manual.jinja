@@ -1,0 +1,20 @@
+{#def
+    user: DetailedUser,
+    results: list[ManualBookRequest],
+    counts: dict[str, int],
+#}
+
+<BaseLayout title="Manual requests" user={{ user }}>
+<div class="w-screen flex flex-col gap-2 p-2 md:p-4 lg:p-8">
+    <div class="flex flex-col gap-1">
+        <h1 class="text-3xl font-bold">
+            Requests
+        </h1>
+        <span class="text-sm opacity-70">
+            Books typed by hand when no release could be found. Mark them downloaded once added to the library.
+        </span>
+    </div>
+    <Requests.Tablist page="manual" counts={{ counts }} />
+    <Requests.ManualList user={{ user }} results={{ results }} />
+</div>
+</BaseLayout>

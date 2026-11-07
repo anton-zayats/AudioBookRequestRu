@@ -7,7 +7,7 @@ from app.internal.ranking.download_ranking import (
     fuzzy_author_narrator_match,
     vaguely_exist_in_title,
 )
-from app.util.normalize import normalize_for_match
+from app.util.normalize import narrators_overlap, normalize_for_match
 
 
 def test_normalize_maps_yo_to_ye() -> None:
@@ -51,3 +51,9 @@ def test_fuzzy_author_narrator_match_negative() -> None:
 
 def test_vaguely_exist_in_title_russian() -> None:
     assert vaguely_exist_in_title(["Пёхов"], "Алексей Пехов. Цикл", 75) == 1
+
+
+def test_narrators_overlap() -> None:
+    assert narrators_overlap(["Александр Клюквин"], ["александр клюквин"]) is True
+    assert narrators_overlap(["Михаил Ефремов"], ["Александр Клюквин"]) is False
+    assert narrators_overlap([], ["Александр Клюквин"]) is False

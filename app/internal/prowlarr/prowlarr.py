@@ -2,7 +2,6 @@ import html
 import json
 import posixpath
 import time
-import uuid
 from datetime import datetime
 from typing import Literal, cast
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -23,10 +22,7 @@ from app.internal.models import (
     TorrentSource,
     UsenetSource,
 )
-from app.internal.notifications import (
-    send_all_manual_notifications,
-    send_all_notifications,
-)
+from app.internal.notifications import send_all_notifications
 from app.internal.prowlarr.source_metadata import edit_source_metadata
 from app.internal.prowlarr.util import (
     prowlarr_config,
@@ -98,7 +94,6 @@ async def start_download(
     guid: str,
     indexer_id: int,
     prowlarr_source: ProwlarrSource | None = None,
-    book_ref: str | None = None,
 ) -> ClientResponse:
     prowlarr_config.raise_if_invalid(session)
     base_url = prowlarr_config.get_base_url(session)
@@ -108,18 +103,6 @@ async def start_download(
     url = posixpath.join(base_url, "api/v1/search")
     logger.debug("Starting download", guid=guid)
     headers = {"X-Api-Key": api_key, "User-Agent": USER_AGENT}
-
-    manual_book_request: ManualBookRequest | None = None
-    book_id: int | None = None
-    if book_ref is not None:
-        try:
-            uuid_obj = uuid.UUID(book_ref)
-            manual_book_request = session.get(ManualBookRequest, uuid_obj)
-        except ValueError:
-            try:
-                book_id = int(book_ref)
-            except ValueError:
-                book_id = None
 
     async with client_session.post(
         url,
@@ -151,18 +134,10 @@ async def start_download(
                 "errorReason": message,
             }
             try:
-                if manual_book_request:
-                    await send_all_manual_notifications(
-                        EventEnum.on_failed_download,
-                        manual_book_request,
-                        replacements,
-                    )
-                else:
-                    await send_all_notifications(
-                        EventEnum.on_failed_download,
-                        book_id,
-                        replacements,
-                    )
+                await send_all_notifications(
+                    EventEnum.on_failed_download,
+                    replacements,
+                )
             except Exception as e:
                 logger.error(
                     "Failed to send download failure notification",
@@ -197,28 +172,10 @@ async def start_download(
             additional_replacements["sourceProtocol"] = prowlarr_source.protocol
 
         logger.debug("Download successfully started", guid=guid)
-        if manual_book_request:
-            manual_book_request.downloaded = True
-            session.add(manual_book_request)
-            session.commit()
-            await send_all_manual_notifications(
-                EventEnum.on_successful_download,
-                manual_book_request,
-                additional_replacements,
-            )
-        else:
-            if book_id is not None:
-                book = session.get(Audiobook, book_id)
-                if book:
-                    book.downloaded = True
-                    session.add(book)
-                    session.commit()
-
-            await send_all_notifications(
-                EventEnum.on_successful_download,
-                book_id,
-                additional_replacements,
-            )
+        await send_all_notifications(
+            EventEnum.on_successful_download,
+            additional_replacements,
+        )
 
         return response
 

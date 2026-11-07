@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 from aiohttp import ClientSession
 from pydantic import BaseModel
-from sqlmodel import Session, col, desc, select
+from sqlmodel import Session, col, desc, func, select
 
 from app.internal.audiobookshelf.client import (
     abs_title_author_in_library,
@@ -35,11 +35,13 @@ from app.internal.downloads.config import (
 from app.internal.models import (
     DownloadJob,
     DownloadSource,
+    EventEnum,
     Release,
     ReleaseRequest,
     TorrentSource,
     UsenetSource,
 )
+from app.internal.notifications import send_all_notifications
 from app.internal.prowlarr.prowlarr import start_download
 from app.util.log import logger
 from app.util.release_title import (
@@ -69,6 +71,15 @@ _JOB_STATES: dict[str, ReleaseState] = {
 
 #: How many Audiobookshelf "is it in the library" checks run concurrently.
 _LIBRARY_CHECK_CONCURRENCY = 4
+
+
+def _notification_replacements(release: Release) -> dict[str, str]:
+    return {
+        "sourceTitle": release.title,
+        "sourceSizeMB": str(release.size_MB),
+        "indexerName": release.indexer,
+        "sourceProtocol": release.protocol,
+    }
 
 
 def _sanitize_segment(value: str) -> str:
@@ -518,18 +529,27 @@ async def download_release(
             gids = await _enqueue_direct(session, client_session, release)
             job.external_id = ",".join(gids)
         else:
+            # Prowlarr grabs send their own success/failure notifications.
             await start_download(
                 session=session,
                 client_session=client_session,
                 guid=release.guid,
                 indexer_id=release.indexer_id,
-                book_ref=None,
             )
         session.add(job)
         session.commit()
 
         # Keep the release in the requests list so its download state stays visible.
         add_release_request(session, release.id, username)
+
+        if release.protocol == "direct":
+            try:
+                await send_all_notifications(
+                    EventEnum.on_successful_download,
+                    _notification_replacements(release),
+                )
+            except Exception as exc:
+                logger.error("Failed to send download notification", error=str(exc))
 
         if abs_config.is_valid(session):
             try:
@@ -541,6 +561,64 @@ async def download_release(
         job.error = str(exc)
         session.add(job)
         session.commit()
+
+        if release.protocol == "direct":
+            try:
+                await send_all_notifications(
+                    EventEnum.on_failed_download,
+                    {"errorStatus": "500", "errorReason": str(exc)},
+                )
+            except Exception as notify_exc:
+                logger.error(
+                    "Failed to send download failure notification",
+                    error=str(notify_exc),
+                )
         raise
 
     return job
+
+
+class ReleasePopularity(BaseModel):
+    """A release plus how many users bookmarked it (home page "popular")."""
+
+    release: Release
+    request_count: int
+
+    @property
+    def reason(self) -> str:
+        return f"{self.request_count} request{'s' if self.request_count != 1 else ''}"
+
+
+def popular_releases(
+    session: Session,
+    limit: int = 10,
+    min_requests: int = 1,
+    exclude_username: str | None = None,
+) -> list[ReleasePopularity]:
+    """Most-bookmarked releases, newest bookmarks breaking ties."""
+    request_count = func.count(col(ReleaseRequest.user_username)).label("request_count")
+    last_requested = func.max(col(ReleaseRequest.created_at)).label("last_requested")
+
+    statement = (
+        select(Release, request_count, last_requested)
+        .join(ReleaseRequest, col(Release.id) == ReleaseRequest.release_id)
+        .group_by(col(Release.id))
+        .having(request_count >= min_requests)
+        .order_by(desc(request_count), desc(last_requested))
+        .limit(limit)
+    )
+
+    if exclude_username:
+        statement = statement.where(
+            col(Release.id).not_in(
+                select(ReleaseRequest.release_id).where(
+                    ReleaseRequest.user_username == exclude_username
+                )
+            )
+        )
+
+    rows = session.exec(statement).all()
+    return [
+        ReleasePopularity(release=release, request_count=int(count))
+        for release, count, _ in rows
+    ]

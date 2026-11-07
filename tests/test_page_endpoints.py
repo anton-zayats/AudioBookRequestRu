@@ -94,11 +94,6 @@ def test_search_pages(
     assert admin_client.get("/search/manual").status_code == 200
 
 
-def test_add_request_page(admin_client: TestClient) -> None:
-    response = admin_client.post(f"/request/hx-add/{BOOK_ID}")
-    assert response.status_code == 200, response.text
-
-
 def test_add_manual_page(admin_client: TestClient) -> None:
     response = admin_client.post(
         "/search/manual/hx-add",
@@ -107,44 +102,31 @@ def test_add_manual_page(admin_client: TestClient) -> None:
     assert response.status_code == 200, response.text
 
 
-# -- wishlist --------------------------------------------------------------
-def test_wishlist_pages(admin_client: TestClient) -> None:
-    assert admin_client.get("/wishlist").status_code == 200
-    assert admin_client.get("/wishlist/downloaded").status_code == 200
-    assert admin_client.get("/wishlist/manual").status_code == 200
+# -- requests --------------------------------------------------------------
+def test_requests_pages(admin_client: TestClient) -> None:
+    assert admin_client.get("/requests").status_code == 200
+    assert admin_client.get("/requests/manual").status_code == 200
 
 
-def test_wishlist_source_pages(admin_client: TestClient, prowlarr: MockServer) -> None:
-    assert prowlarr.base_url
-    response = admin_client.get(f"/wishlist/sources/{BOOK_ID}")
-    assert response.status_code == 200, response.text
-    response = admin_client.get(f"/wishlist/sources/{BOOK_ID}?only_body=1")
-    assert response.status_code == 200, response.text
+def test_legacy_links_redirect(admin_client: TestClient) -> None:
+    legacy = admin_client.get("/wishlist", follow_redirects=False)
+    assert legacy.status_code == 302
+    assert legacy.headers["location"] == "/requests"
 
-    download = admin_client.post(
-        f"/wishlist/sources/{BOOK_ID}",
-        data={"guid": "mock-guid-1", "indexer_id": "1"},
-    )
-    assert download.status_code == 204, download.text
+    legacy_manual = admin_client.get("/wishlist/manual", follow_redirects=False)
+    assert legacy_manual.status_code == 302
+    assert legacy_manual.headers["location"] == "/requests/manual"
+
+    chooser = admin_client.get(f"/request/{BOOK_ID}/releases", follow_redirects=False)
+    assert chooser.status_code == 302
+    assert chooser.headers["location"].startswith("/search?q=")
 
 
-def test_wishlist_actions(admin_client: TestClient, prowlarr: MockServer) -> None:
-    assert prowlarr.base_url
-    auto = admin_client.post(f"/wishlist/hx-auto-download/{BOOK_ID}")
-    assert auto.status_code == 200, auto.text
-
-    marked = admin_client.patch(f"/wishlist/downloaded/hx-add/{BOOK_ID}")
+def test_manual_request_actions(admin_client: TestClient) -> None:
+    marked = admin_client.patch(f"/requests/manual/hx-mark/{MANUAL_ID}")
     assert marked.status_code == 200, marked.text
 
-    deleted = admin_client.delete(f"/wishlist/hx-delete/{BOOK_ID}")
-    assert deleted.status_code == 200, deleted.text
-
-
-def test_wishlist_manual_actions(admin_client: TestClient) -> None:
-    marked = admin_client.patch(f"/wishlist/manual/hx-add/{MANUAL_ID}")
-    assert marked.status_code == 200, marked.text
-
-    deleted = admin_client.delete(f"/wishlist/manual/hx-delete/{MANUAL_ID}")
+    deleted = admin_client.delete(f"/requests/manual/hx-remove/{MANUAL_ID}")
     assert deleted.status_code == 200, deleted.text
 
 

@@ -42,7 +42,7 @@ def update_direct_sources(
     base_url: Annotated[str, Form()],
     max_candidates: Annotated[int, Form()],
     session: Annotated[Session, Depends(get_session)],
-    admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+    _: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
     enabled: Annotated[bool, Form()] = False,
 ):
     indexer_configuration_cache.set_bool(session, ENABLED_KEY, enabled)

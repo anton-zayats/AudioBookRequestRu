@@ -1,0 +1,25 @@
+{#def
+    page: str,
+    counts: dict[str, int],
+#}
+
+<div id="requests-tablist" hx-swap-oob="True" role="tablist" class="tabs tabs-box w-fit">
+    <a preload
+       href="{{ base_url }}/requests"
+       role="tab"
+       class="tab relative {% if page == 'releases' %}tab-active{% endif %}">
+        Releases
+        <p class="absolute badge badge-xs right-0 top-0">
+            {{ counts.get("releases", 0) }}
+        </p>
+    </a>
+    <a preload
+       href="{{ base_url }}/requests/manual"
+       role="tab"
+       class="tab relative {% if page == 'manual' %}tab-active{% endif %}">
+        Manual
+        <p class="absolute badge badge-xs right-0 top-0">
+            {{ counts.get("manual", 0) }}
+        </p>
+    </a>
+</div>

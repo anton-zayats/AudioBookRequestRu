@@ -4,7 +4,6 @@ from aiohttp import ClientSession, InvalidUrlClientError
 from sqlmodel import Session, select
 
 from app.internal.models import (
-    Audiobook,
     EventEnum,
     ManualBookRequest,
     Notification,
@@ -91,35 +90,14 @@ async def _send(
 async def send_notification(
     session: Session,
     notification: Notification,
-    book_id: int | None = None,
     other_replacements: dict[str, str] | None = None,
 ) -> str | None:
+    _ = session  # kept for the manual-request path's symmetry
     if other_replacements is None:
         other_replacements = {}
-    book_title = None
-    book_authors = None
-    book_narrators = None
-    book_cover = None
-    requesters: list[User] | None = None
-    if book_id is not None:
-        book = session.get(Audiobook, book_id)
-        if book:
-            book_title = book.title
-            book_authors = ",".join(book.authors)
-            book_narrators = ",".join(book.narrators)
-            book_cover = book.cover_image
-            requesters = [req.user for req in book.requests]
-
-        if "bookID" not in other_replacements:
-            other_replacements["bookID"] = str(book_id)
 
     body = _replace_variables(
         notification.body,
-        users=requesters,
-        book_title=book_title,
-        book_authors=book_authors,
-        book_narrators=book_narrators,
-        book_cover=book_cover,
         event_type=notification.event.value,
         other_replacements=other_replacements,
     )
@@ -157,7 +135,6 @@ async def send_notification(
 
 async def send_all_notifications(
     event_type: EventEnum,
-    book_id: int | None = None,
     other_replacements: dict[str, str] | None = None,
 ):
     if other_replacements is None:
@@ -172,7 +149,6 @@ async def send_all_notifications(
             await send_notification(
                 session=session,
                 notification=notification,
-                book_id=book_id,
                 other_replacements=other_replacements,
             )
 

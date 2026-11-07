@@ -1,4 +1,4 @@
-"""Download failure handling (issues #220 and #229)."""
+"""Download failure handling (issues #220 and #229) on the release flow."""
 
 from __future__ import annotations
 
@@ -6,20 +6,16 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 from sqlmodel import Session
 
-from app.internal.models import (
-    EventEnum,
-    Notification,
-    NotificationBodyTypeEnum,
-)
-from tests.constants import BOOK_ID
+from app.internal.models import EventEnum, Notification, NotificationBodyTypeEnum
+from tests.fakes import torrent_source
 from tests.http import json_object
 from tests.mock_services import MockServer
 
 
 def _grab(admin_client: TestClient) -> Response:
     return admin_client.post(
-        f"/api/requests/{BOOK_ID}/download",
-        json={"guid": "mock-guid-1", "indexer_id": 1},
+        "/api/releases/download",
+        json=torrent_source(guid="mock-guid-1").model_dump(mode="json"),
     )
 
 
@@ -42,13 +38,18 @@ def test_issue_229_page_surfaces_indexer_error(
     prowlarr.state["grab_status"] = 409
     prowlarr.state["grab_body"] = {"message": "Download blocked: VIP torrent"}
 
+    bookmarked = admin_client.post(
+        "/api/releases/requests",
+        json=torrent_source(guid="mock-guid-1").model_dump(mode="json"),
+    )
+    assert bookmarked.status_code == 201, bookmarked.text
+    release_id = json_object(bookmarked)["id"]
+
     response = admin_client.post(
-        f"/wishlist/sources/{BOOK_ID}",
-        data={"guid": "mock-guid-1", "indexer_id": "1"},
-        headers={"HX-Request": "true"},
+        f"/requests/hx-download/{release_id}", headers={"HX-Request": "true"}
     )
     assert response.status_code < 500
-    assert "VIP" in response.text
+    assert "VIP" in response.headers.get("HX-Trigger", "")
 
 
 def test_issue_220_magnet_redirect_does_not_fail_download(
@@ -57,8 +58,8 @@ def test_issue_220_magnet_redirect_does_not_fail_download(
     prowlarr.state["torrent_redirect"] = (
         "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
     )
-    response = admin_client.post(f"/api/requests/{BOOK_ID}/auto-download")
-    assert response.status_code == 204
+    response = _grab(admin_client)
+    assert response.status_code == 201, response.text
 
 
 def test_issue_229_notification_failure_does_not_mask_error(
@@ -84,37 +85,13 @@ def test_issue_229_notification_failure_does_not_mask_error(
     assert "VIP" in response.text
 
 
-def test_api_auto_download_returns_json_error(
+def test_release_api_returns_json_error(
     admin_client: TestClient, prowlarr: MockServer
 ) -> None:
     prowlarr.state["grab_status"] = 409
     prowlarr.state["grab_body"] = {"message": "Download blocked: VIP torrent"}
 
-    response = admin_client.post(f"/api/requests/{BOOK_ID}/auto-download")
+    response = _grab(admin_client)
     assert response.status_code == 500
     assert response.headers["content-type"].startswith("application/json")
     assert json_object(response)["detail"] == "Download blocked: VIP torrent"
-
-
-def test_page_auto_download_without_prowlarr_is_allowed(
-    admin_client: TestClient,
-) -> None:
-    # Prowlarr is now optional: direct-only users can auto-download without it.
-    response = admin_client.post(
-        f"/wishlist/hx-auto-download/{BOOK_ID}", headers={"HX-Request": "true"}
-    )
-    assert response.status_code == 200
-
-
-def test_page_auto_download_still_returns_toast(
-    admin_client: TestClient, prowlarr: MockServer
-) -> None:
-    prowlarr.state["grab_status"] = 409
-    prowlarr.state["grab_body"] = {"message": "Download blocked: VIP torrent"}
-
-    response = admin_client.post(
-        f"/wishlist/hx-auto-download/{BOOK_ID}", headers={"HX-Request": "true"}
-    )
-    assert response.status_code < 500
-    assert "toast(" in response.text
-    assert "VIP" in response.text

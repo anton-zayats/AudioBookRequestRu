@@ -1,4 +1,4 @@
-"""Direct-source download client + dispatch tests (aria2 mock)."""
+"""Release dispatch tests: aria2 (direct) and Prowlarr (torrent) clients."""
 
 from __future__ import annotations
 
@@ -7,16 +7,14 @@ from datetime import UTC, datetime
 from typing import cast
 
 import aiohttp
-import pytest
-from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.internal.downloads.aria2 import Aria2Client
 from app.internal.downloads.config import download_client_config
-from app.internal.downloads.dispatch import start_direct_download
 from app.internal.models import (
     Audiobook,
     DirectSource,
+    DownloadJob,
     DownloadSource,
     EventEnum,
     Notification,
@@ -25,7 +23,7 @@ from app.internal.models import (
 )
 from app.internal.prowlarr.util import prowlarr_config
 from app.internal.ranking.download_ranking import rank_sources
-from app.util.db import engine
+from app.internal.releases import download_release, upsert_release
 from tests.constants import BOOK_ID
 from tests.mock_services import MockServer
 
@@ -77,7 +75,7 @@ def test_aria2_test_connection(aria2: MockServer, db: Session) -> None:
     assert asyncio.run(run()) is True
 
 
-def test_start_direct_download_enqueues_and_marks(
+def test_download_direct_release_enqueues_and_notifies(
     aria2: MockServer,
     abs_service: MockServer,
     mock_server: MockServer,
@@ -95,22 +93,23 @@ def test_start_direct_download_enqueues_and_marks(
     )
     db.commit()
 
-    book = db.get(Audiobook, BOOK_ID)
-    assert book is not None
     source = _direct(
         download_urls=[
             "http://example.com/a.mp3",
             "http://example.com/b.mp3",
         ],
     )
+    release = upsert_release(db, source)
+    assert release.id is not None
 
-    async def run() -> list[str]:
+    async def run() -> DownloadJob:
         async with aiohttp.ClientSession() as client_session:
-            return await start_direct_download(db, client_session, book, source)
+            return await download_release(db, client_session, release, "root")
 
-    gids = asyncio.run(run())
+    job = asyncio.run(run())
 
-    assert gids == ["mock-gid-1", "mock-gid-2"]
+    assert job.status == "downloading"
+    assert job.external_id == "mock-gid-1,mock-gid-2"
     assert len(aria2.state["aria2_params"]) == 2
 
     first_token, first_urls, first_options = _add_uri(aria2, 0)
@@ -118,11 +117,11 @@ def test_start_direct_download_enqueues_and_marks(
     assert first_token == "token:mock-secret"
     assert first_urls == ["http://example.com/a.mp3"]
     assert second_urls == ["http://example.com/b.mp3"]
-    assert first_options["dir"] == "/downloads/Mock Author - Test Book"
+    # Direct sources have no authors, so the folder falls back to "Unknown Author"
+    assert first_options["dir"] == "/downloads/Unknown Author - Test Book"
     assert first_options["out"] == "a.mp3"
     assert second_options["out"] == "b.mp3"
 
-    assert book.downloaded is True
     assert abs_service.requests_to("/abs/api/libraries/lib-1/scan")
     assert any(
         b"direct" in request["body"]
@@ -202,40 +201,3 @@ def test_direct_seeders_are_ignored(db: Session) -> None:
     # is preserved (the high-seeder torrent does not displace the valid direct).
     assert ranked[0].protocol == "direct"
     assert ranked[1].protocol == "torrent"
-
-
-def test_auto_download_dispatches_direct(
-    admin_client: TestClient,
-    prowlarr: MockServer,
-    aria2: MockServer,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    assert prowlarr.base_url
-
-    async def _no_prowlarr(*_args: object, **_kwargs: object) -> list[object]:
-        return []
-
-    async def _direct_source(
-        _session: Session, _client_session: aiohttp.ClientSession, _book: object
-    ) -> list[DirectSource]:
-        return [
-            _direct(
-                guid="direct:auto:1",
-                download_urls=["http://example.com/auto.mp3"],
-            )
-        ]
-
-    monkeypatch.setattr("app.internal.query.query_prowlarr", _no_prowlarr)
-    monkeypatch.setattr("app.internal.query.search_direct_sources", _direct_source)
-
-    response = admin_client.post(f"/api/requests/{BOOK_ID}/auto-download")
-    assert response.status_code == 204, response.text
-
-    assert len(aria2.state["aria2_params"]) == 1
-    token, urls, _options = _add_uri(aria2, 0)
-    assert token == "token:mock-secret"
-    assert urls == ["http://example.com/auto.mp3"]
-
-    with Session(engine) as session:
-        book = session.get(Audiobook, BOOK_ID)
-        assert book is not None and book.downloaded is True

@@ -3,17 +3,24 @@
 Shows every bookmarked release, grouped by title + author, with a download
 state label and per-release download / refresh / remove actions. Admins see
 every user's bookmarks; everyone else sees only their own.
+
+The page also hosts the manual requests tab: free-form requests typed by users
+when no release exists.
 """
 
+import uuid
 from typing import Annotated
 
 from aiohttp import ClientSession
-from fastapi import APIRouter, Depends, Security
+from fastapi import APIRouter, BackgroundTasks, Depends, Security
 from sqlmodel import Session
 
+from app.internal.audiobookshelf.client import background_abs_trigger_scan
+from app.internal.audiobookshelf.config import abs_config
 from app.internal.auth.authentication import ABRAuth, DetailedUser
+from app.internal.db_queries import get_all_manual_requests
 from app.internal.downloads.config import DownloadClientMisconfigured
-from app.internal.models import Release
+from app.internal.models import GroupEnum, Release
 from app.internal.prowlarr.prowlarr import DownloadFailed
 from app.internal.releases import (
     ReleaseGroup,
@@ -25,6 +32,7 @@ from app.internal.releases import (
     remove_release_request,
     remove_release_request_all,
 )
+from app.routers.api.requests import delete_manual_request, mark_manual_downloaded
 from app.util.connection import get_connection
 from app.util.db import get_session
 from app.util.log import logger
@@ -50,6 +58,15 @@ async def _load_groups(
     return group_release_views(views)
 
 
+def _counts(
+    session: Session, user: DetailedUser, groups: list[ReleaseGroup]
+) -> dict[str, int]:
+    return {
+        "releases": sum(len(group.releases) for group in groups),
+        "manual": len(get_all_manual_requests(session, user)),
+    }
+
+
 async def _content_response(
     session: Session,
     client_session: ClientSession,
@@ -64,6 +81,8 @@ async def _content_response(
         toast_type,  # pyright: ignore[reportArgumentType]
         user=user,
         groups=groups,
+        counts=_counts(session, user, groups),
+        update_tablist=True,
     )
 
 
@@ -81,7 +100,67 @@ async def read_requests(
     client_session: Annotated[ClientSession, Depends(get_connection)],
 ):
     groups = await _load_groups(session, client_session, user)
-    return catalog_response("Requests.Index", user=user, groups=groups)
+    return catalog_response(
+        "Requests.Index",
+        user=user,
+        groups=groups,
+        counts=_counts(session, user, groups),
+    )
+
+
+@router.get("/manual")
+async def read_manual_requests(
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[DetailedUser, Security(ABRAuth())],
+    client_session: Annotated[ClientSession, Depends(get_connection)],
+):
+    groups = await _load_groups(session, client_session, user)
+    return catalog_response(
+        "Requests.Manual",
+        user=user,
+        results=get_all_manual_requests(session, user),
+        counts=_counts(session, user, groups),
+    )
+
+
+@router.patch("/manual/hx-mark/{request_id}")
+async def mark_manual(
+    request_id: uuid.UUID,
+    session: Annotated[Session, Depends(get_session)],
+    background_task: BackgroundTasks,
+    admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    try:
+        await mark_manual_downloaded(request_id, session, background_task, admin_user)
+    except Exception as e:
+        raise ToastException("Could not update the request") from e
+
+    if abs_config.is_valid(session):
+        background_task.add_task(background_abs_trigger_scan)
+
+    return catalog_response(
+        "Requests.ManualList",
+        user=admin_user,
+        results=get_all_manual_requests(session, admin_user),
+    )
+
+
+@router.delete("/manual/hx-remove/{request_id}")
+async def remove_manual(
+    request_id: uuid.UUID,
+    session: Annotated[Session, Depends(get_session)],
+    admin_user: Annotated[DetailedUser, Security(ABRAuth(GroupEnum.admin))],
+):
+    try:
+        await delete_manual_request(request_id, session, admin_user)
+    except Exception as e:
+        raise ToastException("Could not remove the request") from e
+
+    return catalog_response(
+        "Requests.ManualList",
+        user=admin_user,
+        results=get_all_manual_requests(session, admin_user),
+    )
 
 
 @router.post("/hx-download/{release_id}")

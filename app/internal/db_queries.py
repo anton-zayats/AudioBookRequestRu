@@ -1,28 +1,8 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime
-from typing import Literal, cast
 
-from pydantic import BaseModel, TypeAdapter
-from sqlalchemy import func
-from sqlalchemy.orm import InstrumentedAttribute, selectinload
-from sqlmodel import Session, asc, col, not_, select
+from sqlmodel import Session, asc, col, select
 
-from app.internal.models import (
-    Audiobook,
-    AudiobookRequest,
-    AudiobookWishlistResult,
-    DownloadSource,
-    ManualBookRequest,
-    ReleaseSnapshot,
-    User,
-)
-from app.util.log import logger
-
-
-class WishlistCounts(BaseModel):
-    requests: int
-    downloaded: int
-    manual: int
+from app.internal.models import Audiobook, ManualBookRequest, User
 
 
 def upsert_audiobooks(
@@ -70,90 +50,6 @@ def upsert_audiobooks(
     return persisted
 
 
-def get_wishlist_counts(session: Session, user: User | None = None) -> WishlistCounts:
-    """
-    If a non-admin user is given, only count requests for that user.
-    Admins can see and get counts for all requests.
-    """
-    username = None if user is None or user.is_admin() else user.username
-
-    rows = session.exec(
-        select(Audiobook.downloaded, func.count("*"))
-        .where(not username or AudiobookRequest.user_username == username)
-        .select_from(Audiobook)
-        .join(AudiobookRequest)
-        .group_by(col(Audiobook.downloaded))
-    ).all()
-    requests = 0
-    downloaded = 0
-    for downloaded_status, count in rows:
-        if downloaded_status:
-            downloaded = count
-        else:
-            requests = count
-
-    manual = session.exec(
-        select(func.count())
-        .select_from(ManualBookRequest)
-        .where(
-            not username or ManualBookRequest.user_username == username,
-            col(ManualBookRequest.user_username).is_not(None),
-        )
-    ).one()
-
-    return WishlistCounts(
-        requests=requests,
-        downloaded=downloaded,
-        manual=manual,
-    )
-
-
-def get_wishlist_results(
-    session: Session,
-    username: str | None = None,
-    response_type: Literal["all", "downloaded", "not_downloaded"] = "all",
-) -> list[AudiobookWishlistResult]:
-    """
-    Gets the books that have been requested. If a username is given only the books requested by that
-    user are returned. If no username is given, all book requests are returned.
-    """
-    match response_type:
-        case "downloaded":
-            clause = Audiobook.downloaded
-        case "not_downloaded":
-            clause = not_(Audiobook.downloaded)
-        case _:
-            clause = True
-
-    results = session.exec(
-        select(Audiobook)
-        .where(
-            clause,
-            col(Audiobook.id).in_(
-                select(AudiobookRequest.book_id).where(
-                    not username or AudiobookRequest.user_username == username
-                )
-            ),
-        )
-        .options(
-            selectinload(
-                cast(
-                    InstrumentedAttribute[list[AudiobookRequest]],
-                    cast(object, Audiobook.requests),
-                )
-            )
-        )
-    ).all()
-
-    return [
-        AudiobookWishlistResult(
-            book=book,
-            requests=book.requests,
-        )
-        for book in results
-    ]
-
-
 def get_all_manual_requests(
     session: Session, user: User
 ) -> Sequence[ManualBookRequest]:
@@ -165,69 +61,3 @@ def get_all_manual_requests(
         )
         .order_by(asc(ManualBookRequest.downloaded))
     ).all()
-
-
-_download_source_list = TypeAdapter(list[DownloadSource])
-
-
-def save_release_snapshot(
-    session: Session,
-    book_id: int,
-    sources: Sequence[DownloadSource],
-) -> None:
-    """Persist the ranked source list for a book so revisits skip re-querying."""
-    data = [source.model_dump(mode="json") for source in sources]
-    snap = session.get(ReleaseSnapshot, book_id)
-    if snap is None:
-        session.add(ReleaseSnapshot(book_id=book_id, sources=data))
-    else:
-        snap.sources = data
-        snap.updated_at = datetime.now(UTC)
-    session.commit()
-
-
-def load_release_snapshot(
-    session: Session, book_id: int
-) -> list[DownloadSource] | None:
-    """Return persisted sources for a book, or None when there is no snapshot.
-
-    An empty list means a snapshot exists but recorded zero releases (so the
-    chooser should render "no releases" without re-querying).
-    """
-    snap = session.get(ReleaseSnapshot, book_id)
-    if snap is None:
-        return None
-    if not snap.sources:
-        return []
-    try:
-        return _download_source_list.validate_python(snap.sources)
-    except Exception as exc:
-        logger.warning(
-            "Failed to parse release snapshot", book_id=book_id, error=str(exc)
-        )
-        return None
-
-
-def downloaded_narrators(session: Session, book_id: int) -> list[str]:
-    """Narrators of releases already downloaded for a book (deduped).
-
-    Only meaningful while the book is marked downloaded; otherwise there is
-    nothing in the library yet and an empty list is returned.
-    """
-    book = session.get(Audiobook, book_id)
-    if book is None or not book.downloaded:
-        return []
-
-    requests = session.exec(
-        select(AudiobookRequest).where(AudiobookRequest.book_id == book_id)
-    ).all()
-    narrators: list[str] = []
-    seen: set[str] = set()
-    for req in requests:
-        if req.selected_release is None:
-            continue
-        for narrator in req.selected_release.narrators:
-            if narrator and narrator not in seen:
-                seen.add(narrator)
-                narrators.append(narrator)
-    return narrators

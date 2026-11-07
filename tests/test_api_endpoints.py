@@ -2,20 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
-from datetime import UTC, datetime
-from typing import override
 
-import aiohttp
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
 
-from app.internal.metadata.base import MetadataProvider
-from app.internal.models import Audiobook
-from tests.constants import BOOK_ID, DOWNLOADED_BOOK_ID, MANUAL_ID
-from tests.fakes import FakeMetadataProvider, fake_provider, fake_search_releases
+from tests.constants import MANUAL_ID
+from tests.fakes import fake_provider, fake_search_releases
 from tests.http import as_dict, as_list, json_list, json_object
 from tests.mock_services import MockServer
 
@@ -266,48 +259,6 @@ def test_audiobookshelf(admin_client: TestClient, abs_service: MockServer) -> No
     assert tested_body["triggered_scan"] is True
 
 
-def test_abs_mark_downloaded_skips_unrequested_books(
-    db: Session, abs_service: MockServer
-) -> None:
-    from app.internal.audiobookshelf.client import abs_mark_downloaded_flags
-
-    _ = abs_service  # fixture configures ABS base url/token/check-downloaded
-
-    requested = db.get(Audiobook, BOOK_ID)
-    assert requested is not None and not requested.downloaded
-
-    # Matches the ABS mock (title "Test Book", author "Mock Author") but has
-    # no AudiobookRequest, so it must stay requestable.
-    unrequested = Audiobook(
-        source="livelib",
-        external_id="work-unrequested",
-        title="Test Book",
-        subtitle=None,
-        authors=["Mock Author"],
-        narrators=[],
-        cover_image=None,
-        release_date=datetime(2020, 1, 1, tzinfo=UTC),
-        runtime_length_min=600,
-        downloaded=False,
-    )
-    db.add(unrequested)
-    db.commit()
-    db.refresh(unrequested)
-
-    async def _run() -> None:
-        async with aiohttp.ClientSession() as client_session:
-            await abs_mark_downloaded_flags(
-                db, client_session, [requested, unrequested]
-            )
-
-    asyncio.run(_run())
-
-    db.refresh(requested)
-    db.refresh(unrequested)
-    assert requested.downloaded is True
-    assert unrequested.downloaded is False
-
-
 # -- prowlarr --------------------------------------------------------------
 def test_prowlarr_settings(admin_client: TestClient, prowlarr: MockServer) -> None:
     got = admin_client.get("/api/settings/prowlarr")
@@ -464,25 +415,6 @@ def test_update_indexer(admin_client: TestClient) -> None:
 
 
 # -- requests --------------------------------------------------------------
-def test_requests_list(admin_client: TestClient, trusted_client: TestClient) -> None:
-    assert admin_client.get("/api/requests").status_code == 200
-    assert admin_client.get("/api/requests?filter=downloaded").status_code == 200
-    assert admin_client.get("/api/requests?filter=not_downloaded").status_code == 200
-    assert trusted_client.get("/api/requests").status_code == 200
-
-
-def test_create_request(admin_client: TestClient) -> None:
-    created = admin_client.post(f"/api/requests/{BOOK_ID}")
-    assert created.status_code == 200, created.text
-    assert as_dict(json_object(created)["book"])["id"] == BOOK_ID
-
-    duplicate = admin_client.post(f"/api/requests/{BOOK_ID}")
-    assert duplicate.status_code == 409
-
-    missing = admin_client.post("/api/requests/999")
-    assert missing.status_code == 404
-
-
 def test_manual_requests(admin_client: TestClient) -> None:
     created = admin_client.post(
         "/api/requests/manual",
@@ -509,89 +441,7 @@ def test_manual_requests(admin_client: TestClient) -> None:
     assert admin_client.delete(f"/api/requests/manual/{MANUAL_ID}").status_code == 404
 
 
-def test_manual_request_permissions(trusted_client: TestClient) -> None:
-    response = trusted_client.put(
-        f"/api/requests/manual/{MANUAL_ID}",
-        json={"title": "Updated", "author": "X"},
-    )
-    assert response.status_code == 403
-
-
-def test_refresh_and_sources(admin_client: TestClient, prowlarr: MockServer) -> None:
-    assert prowlarr.base_url
-    refreshed = admin_client.post(f"/api/requests/{BOOK_ID}/refresh")
-    assert refreshed.status_code == 202, refreshed.text
-
-    sources = admin_client.get(f"/api/requests/{BOOK_ID}/sources")
-    assert sources.status_code == 200, sources.text
-    body = json_object(sources)
-    assert body["state"] == "ok"
-    assert as_dict(as_list(body["sources"])[0])["guid"] == "mock-guid-1"
-
-
-def test_sources_unconfigured(admin_client: TestClient) -> None:
-    response = admin_client.get(f"/api/requests/{BOOK_ID}/sources")
-    assert response.status_code == 400
-
-
-def test_sources_missing_book(admin_client: TestClient, prowlarr: MockServer) -> None:
-    assert prowlarr.base_url
-    response = admin_client.get("/api/requests/does-not-exist/sources")
-    assert response.status_code == 404
-
-
-def test_download(
-    admin_client: TestClient, prowlarr: MockServer, mock_server: MockServer
-) -> None:
-    assert prowlarr.base_url
-    response = admin_client.post(
-        f"/api/requests/{BOOK_ID}/download",
-        json={"guid": "mock-guid-1", "indexer_id": 1},
-    )
-    assert response.status_code == 204, response.text
-    grabs = mock_server.requests_to("/prowlarr/api/v1/search")
-    assert any(request["method"] == "POST" for request in grabs)
-
-
-def test_auto_download(
-    admin_client: TestClient, prowlarr: MockServer, mock_server: MockServer
-) -> None:
-    assert prowlarr.base_url
-    response = admin_client.post(f"/api/requests/{BOOK_ID}/auto-download")
-    assert response.status_code == 204, response.text
-    assert any(
-        request["method"] == "POST"
-        for request in mock_server.requests_to("/prowlarr/api/v1/search")
-    )
-
-
-def test_mark_downloaded(admin_client: TestClient, trusted_client: TestClient) -> None:
-    response = admin_client.patch(f"/api/requests/{BOOK_ID}/downloaded")
-    assert response.status_code == 204
-    assert admin_client.patch("/api/requests/missing/downloaded").status_code == 404
-    assert (
-        trusted_client.patch(
-            f"/api/requests/{DOWNLOADED_BOOK_ID}/downloaded"
-        ).status_code
-        == 403
-    )
-
-
-def test_delete_request(admin_client: TestClient, trusted_client: TestClient) -> None:
-    assert trusted_client.delete(f"/api/requests/{BOOK_ID}").status_code == 204
-    assert admin_client.delete(f"/api/requests/{DOWNLOADED_BOOK_ID}").status_code == 204
-
-
 # -- search ----------------------------------------------------------------
-def _category_provider(_session: object) -> MetadataProvider:
-    class _CategoryProvider(FakeMetadataProvider):
-        @override
-        async def categories(self) -> dict[str, list[Audiobook]]:
-            return {"детективы": await self.search("детектив", num_results=2)}
-
-    return _CategoryProvider()
-
-
 def test_search(admin_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.routers.api.search.search_releases", fake_search_releases)
 
@@ -670,36 +520,9 @@ def test_openapi_spec(admin_client: TestClient) -> None:
 
     # Response codes match what the handlers return.
     assert "204" in as_dict(
-        _get(paths, "/api/requests/{book_ref}", "delete", "responses")
+        _get(paths, "/api/requests/manual/{id}", "delete", "responses")
     )
-    assert "202" in as_dict(
-        _get(paths, "/api/requests/{book_ref}/refresh", "post", "responses")
+    assert "201" in as_dict(_get(paths, "/api/releases/download", "post", "responses"))
+    assert "201" in as_dict(
+        _get(paths, "/api/releases/requests/{release_id}/download", "post", "responses")
     )
-
-
-# -- recommendations -------------------------------------------------------
-def test_recommendations_local(admin_client: TestClient) -> None:
-    assert admin_client.get("/api/recommendations/popular").status_code == 200
-    assert admin_client.get("/api/recommendations/recent").status_code == 200
-
-
-def test_recommendations_categories(
-    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "app.routers.api.recommendations.get_provider", _category_provider
-    )
-    response = admin_client.get("/api/recommendations/categories")
-    assert response.status_code == 200, response.text
-    body = json_object(response)
-    assert "детективы" in body
-    assert len(as_list(body["детективы"])) == 1
-
-
-def test_recommendations_fallback(
-    admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("app.routers.api.recommendations.get_provider", fake_provider)
-    response = admin_client.get("/api/recommendations/fallback")
-    assert response.status_code == 200, response.text
-    assert len(json_list(response)) >= 1

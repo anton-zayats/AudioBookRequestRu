@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import posixpath
 from datetime import UTC, datetime
 from typing import Literal
@@ -187,7 +186,6 @@ async def abs_list_library_items(
                 cover_image=cover_image,
                 release_date=release_date,
                 runtime_length_min=runtime_length_min,
-                downloaded=True,
             )
             books.append(book)
         except Exception as e:
@@ -305,42 +303,3 @@ async def abs_title_author_in_library(
     )
     _library_checks.set(found, *cache_key)
     return found
-
-
-async def abs_book_exists(
-    session: Session,
-    client_session: ClientSession,
-    book: Audiobook,
-) -> bool:
-    """Heuristic check if a book exists in ABS library by searching by title and author."""
-    return await abs_title_author_in_library(
-        session, client_session, book.title, book.authors
-    )
-
-
-async def abs_mark_downloaded_flags(
-    session: Session,
-    client_session: ClientSession,
-    books: list[Audiobook],
-) -> None:
-    if not abs_config.get_check_downloaded(session):
-        return
-    # Only check books that have a request and aren't already marked. A book
-    # that merely matches ABS by title+author but was never requested here must
-    # stay requestable (the user may want a different narrator/release).
-    to_check = [b for b in books if not b.downloaded and b.requests]
-    # Limit to avoid flooding ABS
-    to_check = to_check[:25]
-
-    async def _check_and_mark(b: Audiobook):
-        try:
-            exists = await abs_book_exists(session, client_session, b)
-            logger.debug("ABS: exist check", book_id=b.id, exists=exists)
-            if exists:
-                b.downloaded = True
-                session.add(b)
-        except Exception as e:
-            logger.debug("ABS: failed exist check", book_id=b.id, error=str(e))
-
-    await asyncio.gather(*[_check_and_mark(b) for b in to_check])
-    session.commit()

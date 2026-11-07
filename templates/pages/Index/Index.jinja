@@ -1,6 +1,5 @@
 {#def
     user: DetailedUser,
-    auto_download: bool,
     show_popular: bool, # no need to show popular if sole user with requests
 #}
 
@@ -28,7 +27,7 @@
     </div>
 
     {% if show_popular %}
-        <Index.PopularSection title="Popular" user={{ user }} lazy_url="/hx-popular" description="The most popular books on the instance" empty="No popular recommendations available at this time. Request some books to start getting recommendations." auto_start_download={{ auto_download }} />
+        <Index.PopularSection title="Popular releases" user={{ user }} lazy_url="/hx-popular" description="Releases other users have requested" empty="No requests yet. Search for a release and add it to your requests." />
     {% endif %}
 
 </div>
